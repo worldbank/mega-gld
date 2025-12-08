@@ -36,7 +36,8 @@ parse_metadata_from_filename <- function(path) {
   fname <- basename(path)
 
   tibble(
-    filename   = path,
+    filename   = fname,
+    dta_path = path,
     country    = str_extract(fname, "^[A-Z]+(?=_)"),
     year       = str_match(fname, "^[A-Z]+_([0-9]{4})")[ ,2],
     quarter    = str_match(fname, "-(Q[1-4])_")[ ,2],
@@ -56,48 +57,46 @@ latest_versions <- parsed %>%
   ungroup()
 
 
-latest_tables <- latest_versions$filename
+latest_tables <- latest_versions$dta_path
 
 print("Latest tables filtered")
 
 
 # --- remove all older-version tables  ---
 
-# metadata <- tbl(sc, metadata_table) %>% collect()
+metadata <- tbl(sc, metadata_table) %>% collect()
 
-# latest_files <- latest_versions$filename
-# ingested_files <- metadata$dta_path[metadata$ingested == TRUE]
+old_versions <- setdiff(metadata$dta_path, latest_tables)
 
-# old_versions <- setdiff(ingested_files, latest_files)
 
-# if (length(old_versions) > 0) {
+if (length(old_versions) > 0) {
 
-#   old_meta <- metadata %>% filter(dta_path %in% old_versions)
+  old_meta <- metadata %>% filter(dta_path %in% old_versions)
 
-#   for (i in seq_len(nrow(old_meta))) {
+  for (i in seq_len(nrow(old_meta))) {
 
-#     tbl_name <- old_meta$table_name[i]
+    tbl_name <- old_meta$table_name[i]
 
-#     if (!is.na(tbl_name) && nzchar(tbl_name)) {
+    if (!is.na(tbl_name) && nzchar(tbl_name)) {
 
-#       full_table <- paste0(target_schema, ".", tbl_name)
+      full_table <- paste0(target_schema, ".", tbl_name)
 
-#       message("Deleting old version Delta table: ", full_table)
+      message("Deleting old version Delta table: ", full_table)
 
-#       DBI::dbExecute(sc, paste0("DROP TABLE IF EXISTS ", full_table))
+      DBI::dbExecute(sc, paste0("DROP TABLE IF EXISTS ", full_table))
 
-#     }
+    }
 
-#     DBI::dbExecute(
-#       sc,
-#       paste0("
-#         DELETE FROM ", metadata_table, "
-#         WHERE dta_path = '", old_meta$dta_path[i], "'
-#       ")
-#     )
+    DBI::dbExecute(
+      sc,
+      paste0("
+        DELETE FROM ", metadata_table, "
+        WHERE dta_path = '", old_meta$dta_path[i], "'
+      ")
+    )
 
-#   }
-# }
+  }
+}
 
 # --- check already ingested and add new files to metadata table ---
 
@@ -111,8 +110,8 @@ if (length(new_files) > 0) {
 
   dataset_names <- basename(dirname(dirname(dirname(new_files))))
 
-  meta_details <- latest_versions %>% filter(filename %in% new_files)
-
+  meta_details <- latest_versions %>% filter(dta_path %in% new_files)
+  meta_details$filename <- sub("\\.dta$", "", meta_details$dta_path)
 
   new_meta <- tibble(
     filename           = dataset_names,
@@ -131,7 +130,7 @@ if (length(new_files) > 0) {
           M_version, A_version
         ),
       by = c("filename" = "filename")
-    )
+    )}
 
   copy_to(sc, new_meta, "tmp_new_meta", overwrite = TRUE)
 

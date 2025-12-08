@@ -5,29 +5,30 @@ from pyspark.sql.functions import col, lit, first
 from pyspark.sql.utils import AnalysisException
 import gc
 
+
 spark = SparkSession.builder.getOrCreate()
 
 metadata_table = "prd_csc_mega.sgld48._ingestion_metadata"
 target_schema  = "prd_csc_mega.sgld48"
 
 CHUNK_THRESHOLD_MB = 900
-CHUNK_SIZE = 100
+CHUNK_SIZE = 5000
 
 # --- load metadata ---
 
-df_meta = (
+metadata = (
     spark.read.table(metadata_table)
     .filter(col("ingested") == False)
     .select("dta_path")
     .toPandas()
 )
 
-if df_meta.empty:
+if metadata.empty:
     print("No files to ingest.")
     raise SystemExit
 
 
-print("Files to ingest:", len(df_meta))
+print("Files to ingest:", len(metadata))
 
 
 # --- helper functions ---
@@ -58,8 +59,9 @@ def update_metadata(dta_path, tbl_name, harm_type, household_level):
 
 # --- ingest ----
 
-for dta_path in df_meta["dta_path"]:
+for dta_path in metadata["dta_path"]:
     print("--- Processing:", dta_path)
+
     try:
 
         tbl_name = make_table_name(dta_path)
@@ -86,10 +88,7 @@ for dta_path in df_meta["dta_path"]:
                 if "harmonization" in cols else None
             )
 
-            household_level = (
-                pdf["hhid"].notna().any() and (pdf["hhid"] != "").any()
-                if "hhid" in cols else None
-            )
+            household_level = ("hhid" in cols and pdf["hhid"].notna().any())
 
             sdf = spark.createDataFrame(pdf)
 
@@ -119,15 +118,16 @@ for dta_path in df_meta["dta_path"]:
             if "harmonization" in cols else None
         )
 
-        household_level = (
-            first_chunk["hhid"].notna().any() and (first_chunk["hhid"] != "").any()
-            if "hhid" in cols else None
-        )
+        household_level = ("hhid" in cols and pdf["hhid"].notna().any())
 
         print("Writing first chunk →", full_table_name)
         spark_df.write.mode("overwrite").format("delta") \
             .option("overwriteSchema", "true") \
             .saveAsTable(full_table_name)
+
+        del first_chunk
+        del spark_df
+        gc.collect()
 
         for i, chunk in enumerate(reader, start=2):
             print(f"Chunk {i} size:",
@@ -137,17 +137,22 @@ for dta_path in df_meta["dta_path"]:
             spark_df = spark.createDataFrame(chunk, schema=spark_schema)
             spark_df.write.mode("append").format("delta").saveAsTable(full_table_name)
 
+            del chunk
+            del spark_df
+            gc.collect()
+
 
         # --- update metadata ---
         update_metadata(dta_path, tbl_name, harm_type, household_level)
+    
     except Exception as e:
         print(f"ERROR ingesting {dta_path}: {e}")
 
-    finally:
-        for obj in ["pdf", "first_chunk", "chunk", "reader", "spark_df", "spark_schema"]:
-            del obj
+    for obj in ["reader", "pdf", "first_chunk", "chunk", "reader", "spark_df", "spark_schema"]:
+        if obj in locals():
+            del locals()[obj]
+    gc.collect()
 
-        gc.collect()
 
 print("Ingestion complete.")
 
