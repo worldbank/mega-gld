@@ -32,7 +32,7 @@ ___
 **Script 4a (3a-gls-json-pub.R):** publishes all the json files in json_temp, alongside the corresponding datasets (using the file in the `dta_path` column of the __ingestion_metadata_ table), .do files (using the file in the `do_path` column of the __ingestion_metadata_ table) and technical documentation/questionnaires (found in the corresponding Docs folder). 
 > Please note that the environment variable "NADA_API_KEY" is used to publish. if the API key needs to be updated, follow [these instructions](https://docs.databricks.com/aws/en/security/secrets/). The scope is GLDKEYVAULT, and it can be managed by anyone in the ITSDA-LKHS-DAP-PROD-gld team.
 
-> Please note that the structure of the Docs folder varies. Some Docs folder contain files, some contain subfolders called Technical and Questionnaires - however these can be empty. For convenience, if documents are correctly organized, they will be published as two separate resources (Questionnaires and Technical Documentation). If they are not, all documents get uploaded as Technical Documentation. 
+> Please note that the structure of the Docs folders varies. Some Docs folders contain files, some contain subfolders called Technical and Questionnaires - however these can be empty. For convenience, if documents are correctly organized, they will be published as two separate resources (Questionnaires and Technical Documentation). If they are not, all documents get uploaded as Technical Documentation. 
 ___
 **Script 2b** [forthcoming. manages stacking]
 ___
