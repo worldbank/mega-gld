@@ -109,6 +109,8 @@ new_files <- setdiff(latest_tables, already_ingested)
 if (length(new_files) > 0) {
 
   dataset_names <- basename(dirname(dirname(dirname(new_files))))
+  new_filenames <- unique(dataset_names)
+  print(new_filenames)
 
   meta_details <- latest_versions %>% filter(dta_path %in% new_files)
   meta_details$filename <- sub("\\.dta$", "", meta_details$dta_path)
@@ -122,7 +124,8 @@ if (length(new_files) > 0) {
     harmonization = NA_character_,
     household_level = NA,
     version_label = NA_character_,
-    do_path = NA_character_
+    do_path = NA_character_,
+    classification = NA_character_
   ) %>%
     left_join(
       meta_details %>%
@@ -151,4 +154,5 @@ if (length(new_files) > 0) {
 
   DBI::dbExecute(sc, "DROP TABLE IF EXISTS tmp_new_meta")
 }
+
 

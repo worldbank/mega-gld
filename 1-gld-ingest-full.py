@@ -4,6 +4,8 @@ from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, lit, first
 from pyspark.sql.utils import AnalysisException
 import gc
+%pip install pyreadstat
+import pyreadstat
 
 
 spark = SparkSession.builder.getOrCreate()
@@ -56,6 +58,23 @@ def update_metadata(dta_path, tbl_name, harm_type, household_level):
 
     print("Updated metadata for:", dta_path)
 
+def get_stata_var_labels(dta_path):
+    _, meta = pyreadstat.read_dta(dta_path, metadataonly=True)
+    return {
+        name: label
+        for name, label in zip(meta.column_names, meta.column_labels)
+        if label is not None and str(label).strip() != ""
+    }
+
+def apply_column_comments(full_table_name, var_labels):
+    for col_name, label in var_labels.items():
+        safe_label = label.replace("'", "''")
+        safe_col = col_name.replace("`", "``")
+        spark.sql(f"""
+            ALTER TABLE {full_table_name}
+            ALTER COLUMN `{col_name}`
+            COMMENT '{safe_label}'
+        """)
 
 # --- ingest ----
 
@@ -95,6 +114,10 @@ for dta_path in metadata["dta_path"]:
             print("Writing:", full_table_name)
             sdf.write.mode("overwrite").format("delta").saveAsTable(full_table_name)
 
+            var_labels = get_stata_var_labels(dta_path)
+            print("labels:", list(var_labels.items())[:10])
+            apply_column_comments(full_table_name, var_labels)
+
             update_metadata(dta_path, tbl_name, harm_type, household_level)
             continue
 
@@ -103,6 +126,9 @@ for dta_path in metadata["dta_path"]:
         reader = pd.read_stata(dta_path, chunksize=CHUNK_SIZE, iterator=True, convert_categoricals=False)
 
         first_chunk = next(reader)
+
+        var_labels = get_stata_var_labels(dta_path)
+        print("labels:", list(var_labels.items())[:10])
 
         print("First chunk size:",
             first_chunk.memory_usage(deep=True).sum() / 1_048_576,
@@ -118,12 +144,14 @@ for dta_path in metadata["dta_path"]:
             if "harmonization" in cols else None
         )
 
-        household_level = ("hhid" in cols and pdf["hhid"].notna().any())
+        household_level = ("hhid" in cols and first_chunk["hhid"].notna().any())
 
         print("Writing first chunk →", full_table_name)
         spark_df.write.mode("overwrite").format("delta") \
             .option("overwriteSchema", "true") \
             .saveAsTable(full_table_name)
+
+        apply_column_comments(full_table_name, var_labels)
 
         del first_chunk
         del spark_df
