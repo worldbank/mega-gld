@@ -4,6 +4,8 @@ library(stringr)
 library(purrr)
 library(sparklyr)
 library(httr)
+library(haven)
+library(readxl)
 
 # --- set variables --- 
 
@@ -25,17 +27,20 @@ target_schema  <- "prd_csc_mega.sgld48"
 
 metadata <- tbl(sc, metadata_table) %>% collect()
 
+set.seed(123) #remove
 unpublished <- metadata %>% 
-  filter(published == FALSE)
+  filter(published == FALSE) %>% 
+  slice_sample(n = 3) #remove
 
-colnames(unpublished)
+unpublished
 
 # --- import supporting files ---
-countries_csv <- "/Volumes/prd_csc_mega/sgld48/vgld48/Workspace/countries.csv"
-column_names <- c("code", "name") 
-countries_names  <- read.csv(countries_csv, header = FALSE, col.names = column_names)
-path_survey <- "/Volumes/prd_csc_mega/sgld48/vgld48/Workspace/survey_metadata.csv"
-survey  <- read.csv(path_survey)
+countries_names <- tbl(sc, "prd_mega.indicator.country") %>%
+  select(code = country_code,name = country_name) %>%
+  collect()
+
+path_survey <- file.path(root_dir, "survey-metadata.xlsx")
+survey <- read_excel(path_survey)
 
 merged_df <- left_join(
   unpublished,
@@ -100,17 +105,6 @@ merged_df <- merged_df %>%
             by = c("country", "survey_clean")) 
 
 
-colnames(merged_df)
-
-summary_empty <- merged_df %>%
-  summarise(across(
-    everything(),
-    ~ sum(is.na(.) | trimws(as.character(.)) == ""),
-    .names = "empty_{col}"
-  ))
-
-print(summary_empty, n = Inf, width = Inf)
-
 # --- helper functions ---
 safe <- function(x) ifelse(is.na(x) | x == "", "", x)
 date_prod <- function(x) format(as.Date(x), "%m/%d/%Y")
@@ -120,22 +114,24 @@ trim <- function(x) str_trim(as.character(x))
 
 
 make_mdl_json <- function(row) {
-  prod_date <- Sys.Date()         
+
+  # ---- dates ----
+  prod_date <- Sys.Date()
   prod_mmddyyyy <- date_prod(prod_date)
-  prod_y <- date_prod_year(prod_date)
+  prod_y  <- date_prod_year(prod_date)
   prod_ym <- date_prod_year_month(prod_date)
-  
-  A_version_padded <- sprintf("%02d", as.integer(row$A_version))
 
-
-  gld_team_name <- "Economic Policy - Growth and Jobs Unit"
-
-  # if quarter is empty, don’t include it in title
+  # ---- quarter logic ----
   q <- safe(row$quarter)
   q_piece <- ifelse(q == "", "", paste0(" ", q))
 
+  # --- other repeatables ---
+  A_version_padded <- sprintf("%02d", as.integer(row$A_version))
+  gld_team_name <- "Economic Policy - Growth and Jobs Unit"
+  idno_val <- paste0("DDI_", row$filename, "_WB")
+  long_title <- paste0(row$survey_extended, q_piece, " ", row$year, ", Global Labour Database Harmonized Dataset")
 
-  # GH link
+  # ---- GH link ----
   gh_link <- safe(row$gh_url)
   abstract_tail <- ifelse(
     gh_link == "",
@@ -143,15 +139,23 @@ make_mdl_json <- function(row) {
     paste0("\n\nFor more details see --> ", gh_link)
   )
 
-  # Country lookup
+  # ---- variables ----
+  # variables <- read_dta_metadata(row)
+  # variable_groups <- list()
+
+  # ---- country lookup ----
   nation_name <- countries_names$name[match(row$country, countries_names$code)]
 
-  # Build nested list
-  out <- list(
-    type = "survey",
+  # --- populate the json ---
+  json <- list(
+    idno = idno_val,
+    collection_ids = list(824),
+    template_uid = "microdata-system-en",
+    overwrite = "no",
+
     doc_desc = list(
       title = row$filename,
-      idno = paste0("DDI_", row$filename, "_WB"),
+      idno  = idno_val,
       producers = list(
         list(
           name = gld_team_name,
@@ -167,30 +171,26 @@ make_mdl_json <- function(row) {
         )
       ),
       prod_date = prod_mmddyyyy,
-      A_version_padded = A_version_padded,
       version_statement = list(
-        version = paste0("Version ", A_version_padded, " (", prod_mmddyyyy, ")")
+        version = paste0("A", A_version_padded),
+        version_date = prod_mmddyyyy,
+        version_resp = gld_team_name,
+        version_notes = safe(row$version_label)
       )
     ),
 
     study_desc = list(
       title_statement = list(
-        idno = row$filename,
-        title = paste0(
-          row$survey_extended,
-          q_piece, " ", row$year,
-          ", Global Labour Database Harmonized Dataset"
-        ),
-        alt_title = paste0(row$survey_clean, " GLD ", row$year)
+        idno = idno_val,
+        title = long_title,
+        alternate_title = paste0(row$survey_clean, " GLD ", row$year)
       ),
-
       authoring_entity = list(
         list(
           name = gld_team_name,
-          affiliation = "The World Bank"
+          affiliation = "World Bank"
         )
       ),
-
       production_statement = list(
         producers = list(
           list(
@@ -199,7 +199,7 @@ make_mdl_json <- function(row) {
             role = "Production of the harmonized file"
           ),
           list(
-            name <- if (!is.null(row$producers_name) && !is.na(row$producers_name)&& nzchar(trimws(row$producers_name))) {row$producers_name } else { paste("National Statistical Offices of", nation_name)},
+            name = if (!is.null(row$producers_name) && !is.na(row$producers_name)&& nzchar(trimws(row$producers_name))) {row$producers_name } else { paste("National Statistical Offices of", nation_name)},
             affiliation = "",
             role = "Production of the survey data"
           )
@@ -234,21 +234,26 @@ make_mdl_json <- function(row) {
       series_statement = list(
         series_name = "Other Household Survey[hh / oth]",
         series_info =
-"The Global Labor Database (GLD) builds on the work done under the \"International Income Distribution Database\" (I2D2) project. Both are efforts to harmonize diverse household surveys to a common standard. I2D2 was discontinued in 2019 and followed by the Global Monitoring Database (GMD) and GLD. The former harmonized Income and Expenditure surveys that enable poverty estimates. GLD focuses mainly on household surveys not covered by GMD that still contain valuable labour market information (e.g., labour force surveys). Both GMD and GLD share a common data dictionary so that variables can be compared across databases. GLD has no established release calendar but aims to keep expanding continuously to provide users a global and up to date suite of microdata."
+          "The Global Labor Database (GLD) builds on the work done under the \"International Income Distribution Database\" (I2D2) project. Both are efforts to harmonize diverse household surveys to a common standard. I2D2 was discontinued in 2019 and followed by the Global Monitoring Database (GMD) and GLD. The former harmonized Income and Expenditure surveys that enable poverty estimates. GLD focuses mainly on household surveys not covered by GMD that still contain valuable labour market information (e.g., labour force surveys). Both GMD and GLD share a common data dictionary so that variables can be compared across databases. GLD has no established release calendar but aims to keep expanding continuously to provide users a global and up to date suite of microdata."
       ),
 
       version_statement = list(
         version = paste0("Version ", row$A_version,
-                         ": Harmonized, anonymized dataset for, ", row$data_classification, "distribution."),
+                         ": Harmonized, anonymized dataset for, ", row$classification, "distribution."),
         version_date = prod_ym,
         version_notes = safe(row$version_label)
       ),
 
+      bib_citation = paste0(
+        "World Bank. ", row$survey_extended," ", row$year,", Global Labour Database Harmonized Dataset. Ref: ", row$filename,". Dataset downloaded from [url] on [date]."
+      ),
+      bib_citation_format = "text",
+
       study_info = list(
         abstract = paste0(
-"Statistical agencies in nearly every nation conduct household surveys which provide individual-level information. However, the datasets are often difficult to access and not readily comparable across countries or across time. This greatly hampers their use for comparative studies of developing economies. The Global Labor Datase (GLD) is a worldwide collection of standardised microdata drawn from representative household surveys and consisting of a standardized set of geographic, sociodemographic, migration, education, and labour market variables.
-GLD draws on different types of surveys, usually conducted by national statistical agencies, like Labour Force Surveys, and multi-topic surveys (such as Living Standards Measurement Study Surveys). GLD aims to be a collaborative and reactive database that allows researchers to not just use the data but to share with them every step from raw survey to harmonized output. GLD allows cross-country comparisons and analysis at various disaggregation levels: gender, urban-rural, age cohorts, or employment status.",
-abstract_tail
+          "Statistical agencies in nearly every nation conduct household surveys which provide individual-level information. However, the datasets are often difficult to access and not readily comparable across countries or across time. This greatly hampers their use for comparative studies of developing economies. The Global Labor Datase (GLD) is a worldwide collection of standardised microdata drawn from representative household surveys and consisting of a standardized set of geographic, sociodemographic, migration, education, and labour market variables.
+          GLD draws on different types of surveys, usually conducted by national statistical agencies, like Labour Force Surveys, and multi-topic surveys (such as Living Standards Measurement Study Surveys). GLD aims to be a collaborative and reactive database that allows researchers to not just use the data but to share with them every step from raw survey to harmonized output. GLD allows cross-country comparisons and analysis at various disaggregation levels: gender, urban-rural, age cohorts, or employment status.",
+          abstract_tail
         ),
 
         coll_dates = list(
@@ -277,7 +282,7 @@ abstract_tail
       method = list(
         data_collection = list(
           method_notes =
-"The GLD data harmonization process generates variables from the raw survey data or, in some cases, from regional harmonized files if raw surveys cannot be obtained. Harmonizers review survey questionnaires and methodology documents and code following a standardised template. The output is evaluated both using detailed quality checks procedure and, whenever possible, reaching out to colleagues in the respective countries for validation."
+            "The GLD data harmonization process generates variables from the raw survey data or, in some cases, from regional harmonized files if raw surveys cannot be obtained. Harmonizers review survey questionnaires and methodology documents and code following a standardised template. The output is evaluated both using detailed quality checks procedure and, whenever possible, reaching out to colleagues in the respective countries for validation."
         )
       ),
 
@@ -295,69 +300,72 @@ abstract_tail
             )
           ),
           cit_req = paste0(
-"Use of the dataset must be acknowledged using a citation which would include:
-- the Identification of the Primary Investigator
-- the title of the survey (including country, acronym and year of implementation)
-- the survey reference number
-- the source and date of download
+            "Use of the dataset must be acknowledged using a citation which would include:
+            - the Identification of the Primary Investigator
+            - the title of the survey (including country, acronym and year of implementation)
+            - the survey reference number
+            - the source and date of download
 
- Example:
- World Bank. ", row$survey_extended, row$year,
-", Global Labour Database Harmonized Dataset. Ref: ", row$filename,
-". Dataset downloaded from [url] on [date]."
+            Example:
+            World Bank. ", row$survey_extended, row$year,
+            ", Global Labour Database Harmonized Dataset. Ref: ", row$filename,
+            ". Dataset downloaded from [url] on [date]."
           ),
           conditions = safe(row$data_access_note),
           disclaimer =
-"The user of the data acknowledges that the original collector of the data, the authorized distributor of the data, and the relevant funding agency bear no responsibility for use of the data or for interpretations or inferences based upon such uses."
+            "The user of the data acknowledges that the original collector of the data, the authorized distributor of the data, and the relevant funding agency bear no responsibility for use of the data or for interpretations or inferences based upon such uses."
         )
       )
     ),
 
-    schematype = "survey",
+    # data_files = list(
+    #   list(
+    #     file_id = "F1",
+    #     file_name = row$filename
+    #   )
+    # ),
+
+    #variables = "",
+
+    # variable_groups = variable_groups,
+
+    datacite = list(
+      creators = list(
+        list(name = gld_team_name)
+      ),
+      titles = list(
+        list(title = long_title)
+      ),
+      types = list(
+        resourceType = "Dataset"
+      )
+    ),
 
     tags = list(
       list(tag = "Labor"),
       list(tag = "")
     )
   )
-
-  return(out)
+  return(json)
 }
+
 
 # --- generate the json files --- []
 
-json_dir <- "/Volumes/prd_csc_mega/sgld48/vgld48/Workspace/jsons_temp/"
+json_dir <- "/Volumes/prd_csc_mega/sgld48/vgld48/Workspace/json_to_publish/"
 
 for (i in 1:nrow(merged_df)) {
-  row <- merged_df[i, ]
-  json_obj <- make_mdl_json(row)
-  out_path <- paste0(json_dir, row$filename, ".json")
-  write_json(json_obj, out_path, pretty = TRUE, auto_unbox = TRUE)
+  tryCatch({
+    row <- merged_df[i, ]
+    json_obj <- make_mdl_json(row)
+    out_path <- paste0(json_dir, row$filename, ".json")
+    write_json(json_obj, out_path, pretty = TRUE, auto_unbox = TRUE)
+    message("JSON created for ", row$filename)
+  }, error = function(e) {
+      warning("FAILED to create JSON for ", row$filename ,conditionMessage(e))
+  })
 }
-
-
 
 
 json_files <- list.files(json_dir, pattern = "\\.json$", full.names = TRUE)
-
-# Helper function: recursively count empty fields
-count_empty <- function(obj) {
-  if (is.list(obj)) {
-    sum(map_int(obj, count_empty))
-  } else {
-    # Atomic value: check for empty, NA, NULL, or ""
-    is.null(obj) || is.na(obj) || (is.character(obj) && trimws(obj) == "")
-  }
-}
-
-summary_list <- map_df(json_files, function(f) {
-  j <- fromJSON(f, simplifyVector = FALSE)
-
-  tibble(
-    file = basename(f),
-    empty_fields = count_empty(j)
-  )
-})
-
-print(summary_list)
 

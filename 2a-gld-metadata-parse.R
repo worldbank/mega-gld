@@ -22,7 +22,7 @@ unpublished <- metadata %>%
   )
 
 
-# --- find do files and parse info from them ---
+# --- find do files paths  ---
 find_do_files <- function(harmonized_path, filename) {
   version_folder <- path_dir(path_dir(path_dir(harmonized_path)))
   programs_dir  <- path(version_folder, "Programs")
@@ -172,7 +172,7 @@ parse_do_file <- function(path) {
 
 
 
-# --- parse the do files
+# --- parse the do files ---
 
 parsed_rows <- lapply(seq_len(nrow(unpublished)), function(i) {
   row <- unpublished[i, ]
