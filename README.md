@@ -22,7 +22,7 @@ ___
 **Script 1 (1-gld-ingest-full.py):** ingests all new tables to prd_csc_mega.sgld48, either in their entirety or in 5000-line chunks, if the file exceeds 900MB. The script also saves all variable labels as column comments in Databricks. At the end of the ingestion process, the following variables are updated in __ingestion_metadata_ - `harmonization` (GLD or GLD Light) and `household_level` (TRUE if the dataset contains the hhid variable), and `ingested` (TRUE if the ingestion process is successful).
 > Please note that Databricks tables cannot include the character "-" in their name. Therefore, "-" is replaced with "_" and the value correspondence is stored in the `table_name` column of __ingestion_metadata_
 ___
-**Script 2a (2a-gls-metadata-parse.R):** identifies the .do file that corresponds to the .dta file ingested, and parses it to extract the description of changes from the previous version to the current one. 
+**Script 2a (2a-gld-metadata-parse.R):** identifies the .do file that corresponds to the .dta file ingested, and parses it to extract the description of changes from the previous version to the current one. 
 Both `do_path` and `version_label` are stored in the __ingestion_metadata_ table.
 > Once we have agreed on a standardized template for extracting data classification from the "Where is this data from?.txt" files, this script will also contained parsing code for `classification`, and will add `classification` to the __ingestion_metadata_ table.
 ___
