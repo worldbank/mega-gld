@@ -10,8 +10,8 @@ import pyreadstat
 
 spark = SparkSession.builder.getOrCreate()
 
-metadata_table = "prd_csc_mega.sgld48._ingestion_metadata"
-target_schema  = "prd_csc_mega.sgld48"
+target_schema  <- "prd_csc_mega.sgld48"
+metadata_table <- paste0(target_schema, "._ingestion_metadata")
 
 CHUNK_THRESHOLD_MB = 900
 CHUNK_SIZE = 5000

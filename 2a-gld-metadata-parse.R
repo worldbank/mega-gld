@@ -3,15 +3,14 @@ library(dplyr)
 library(haven)
 library(sparklyr)
 library(stringr)
-library(dplyr)
 library(fs)
 
 root_dir <- "/Volumes/prd_csc_mega/sgld48/vgld48/Documents"
 
 sc <- spark_connect(method = "databricks")
 
-metadata_table <- "prd_csc_mega.sgld48._ingestion_metadata"
 target_schema  <- "prd_csc_mega.sgld48"
+metadata_table <- paste0(target_schema, "._ingestion_metadata")
 
 metadata <- tbl(sc, metadata_table) %>% collect()
 
@@ -53,10 +52,12 @@ find_do_files <- function(harmonized_path, filename) {
     if (length(no_suffix) == 1) {
       return(no_suffix)
     }
-  
+
+    warning("No .do file or mupltiple .do files detected for ", filename,"; none selected.")
     return("")
   }
-
+  
+  warning("No .do file or mupltiple .do files detected for ", filename,"; none selected.")
   return("")
 }
 

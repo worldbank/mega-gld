@@ -4,7 +4,6 @@ library(stringr)
 library(purrr)
 library(sparklyr)
 library(httr)
-library(haven)
 library(readxl)
 
 # --- set variables --- 
@@ -19,8 +18,8 @@ root_dir <- "/Volumes/prd_csc_mega/sgld48/vgld48/Documents"
 
 sc <- spark_connect(method = "databricks")
 
-metadata_table <- "prd_csc_mega.sgld48._ingestion_metadata"
 target_schema  <- "prd_csc_mega.sgld48"
+metadata_table <- paste0(target_schema, "._ingestion_metadata")
 
 
 # --- import metadata --- 
@@ -139,9 +138,6 @@ make_mdl_json <- function(row) {
     paste0("\n\nFor more details see --> ", gh_link)
   )
 
-  # ---- variables ----
-  # variables <- read_dta_metadata(row)
-  # variable_groups <- list()
 
   # ---- country lookup ----
   nation_name <- countries_names$name[match(row$country, countries_names$code)]
@@ -367,5 +363,4 @@ for (i in 1:nrow(merged_df)) {
 }
 
 
-json_files <- list.files(json_dir, pattern = "\\.json$", full.names = TRUE)
 

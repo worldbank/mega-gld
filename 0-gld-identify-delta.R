@@ -8,9 +8,8 @@ root_dir <- "/Volumes/prd_csc_mega/sgld48/vgld48/Documents"
 
 sc <- spark_connect(method = "databricks")
 
-metadata_table <- "prd_csc_mega.sgld48._ingestion_metadata"
 target_schema  <- "prd_csc_mega.sgld48"
-
+metadata_table <- paste0(target_schema, "._ingestion_metadata")
 
 # --- find harmonized data folders and dta files --- 
 

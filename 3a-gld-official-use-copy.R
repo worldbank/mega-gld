@@ -3,9 +3,9 @@ library(dplyr)
 
 sc <- spark_connect(method = "databricks")
 
-metadata_table <- "prd_csc_mega.sgld48._ingestion_metadata"
 csc_schema <- "prd_csc_mega.sgld48"
 ouo_schema <- "prd_mega.sgld48"
+metadata_table <- paste0(csc_schema, "._ingestion_metadata")
 
 metadata <- tbl(sc, metadata_table) %>% collect()
 

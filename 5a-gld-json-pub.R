@@ -182,8 +182,8 @@ handle_doc_resources <- function(project_id, idno, dta_path, api_key, row) {
     #dest_zip <- path(zip_out_dir, basename(zipfile))
     #file_copy(zipfile, dest_zip, overwrite = TRUE)
     zip_contents <- zip::zip_list(zipfile)$filename
-    message("Created ZIP %s with %d files", basename(zipfile), length(zip_contents))
-    message("ZIP contents: %s", paste(zip_contents, collapse = ", "))
+    message(sprintf("Created ZIP %s with %d files", basename(zipfile), length(zip_contents)))
+    message(sprintf("ZIP contents: %s", paste(zip_contents, collapse = ", ")))
     zipfile
   }
 
@@ -269,7 +269,11 @@ results <- lapply(json_files, function(jfile){
     return(list(idno=fname_base, status="NO_METADATA"))
   }
 
-  table_name <- row$table_name[1]  
+  if (nrow(row) > 1) {
+    warning("Multiple metadata matches for ", fname_base," (", nrow(row), " rows). Using the first match.")
+    row <- row[1, , drop = FALSE]
+  }
+ 
   idno <- paste0("DDI_", row$filename, "_WB")
 
   # 1 create dataset
