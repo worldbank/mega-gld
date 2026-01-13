@@ -26,10 +26,8 @@ metadata_table <- paste0(target_schema, "._ingestion_metadata")
 
 metadata <- tbl(sc, metadata_table) %>% collect()
 
-set.seed(123) #remove
 unpublished <- metadata %>% 
-  filter(published == FALSE) %>% 
-  slice_sample(n = 3) #remove
+  filter(published == FALSE)
 
 unpublished
 
