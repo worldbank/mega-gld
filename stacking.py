@@ -69,6 +69,7 @@ schema = StructType([
     StructField("vocational_type", IntegerType(), True),
     StructField("vocational_length_l", IntegerType(), True),
     StructField("vocational_length_u", IntegerType(), True),
+    StructField("vocational_field", IntegerType(), True),
     StructField("vocational_financed", IntegerType(), True),
     StructField("minlaborage", DoubleType(), True),
     StructField("lstatus", IntegerType(), True),
@@ -180,7 +181,7 @@ schema = StructType([
 # COMMAND ----------
 
 #TODO add this to the metadata table as a flag
-TO_REMOVE = ['MEX_2005-2023_ENOE_V01_M_V01_A_GLD', 'IND_2022_PLFS-Urban-Panel_V01_M_V01_A_GLD']
+TO_REMOVE = ['MEX_2023_ENOE_Panel_V01_M_V01_A_GLD_ALL', 'IND_2022_PLFS_Urban_Panel_V01_M_V01_A_GLD_ALL']
 
 # COMMAND ----------
 
@@ -261,4 +262,4 @@ for tbl, classification, country_val, year_val, survey_val in table_metadata:
 
 # COMMAND ----------
 
-
+extras = ['migrated_from_urban']
