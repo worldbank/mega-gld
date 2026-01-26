@@ -11,28 +11,14 @@ sc <- spark_connect(method = "databricks")
 target_schema  <- "prd_csc_mega.sgld48"
 metadata_table <- paste0(target_schema, "._ingestion_metadata")
 
-# --- find harmonized data folders and dta files --- 
-
-country_dirs <- list.dirs(root_dir, recursive = FALSE)
-
-dataset_dirs <- unlist(lapply(country_dirs, list.dirs, recursive = FALSE))
-
-version_dirs <- unlist(lapply(dataset_dirs, function(d) {list.dirs(d, recursive = FALSE)}))
-
-harmonized_paths <- file.path(version_dirs, "Data", "Harmonized")
-
-harmonized_paths <- harmonized_paths[dir.exists(harmonized_paths)]
+# --- helpers --- 
 
 list_dta_files <- function(paths) {
   unlist(map(paths, ~ list.files(.x, pattern = "\\.dta$", full.names = TRUE)))
 }
 
-all_dta_files <- list_dta_files(harmonized_paths)
-
-print("Dta files collected")
-
 parse_metadata_from_filename <- function(path) {
-  fname <- basename(path)
+  fname <- basename(dirname(dirname(dirname(path))))
 
   tibble(
     filename   = fname,
@@ -46,8 +32,24 @@ parse_metadata_from_filename <- function(path) {
   )
 }
 
-parsed <- bind_rows(lapply(all_dta_files, parse_metadata_from_filename))
 
+# --- find harmonized data folders and dta files --- 
+
+country_dirs <- list.dirs(root_dir, recursive = FALSE)
+
+dataset_dirs <- unlist(lapply(country_dirs, list.dirs, recursive = FALSE))
+
+version_dirs <- unlist(lapply(dataset_dirs, function(d) {list.dirs(d, recursive = FALSE)}))
+
+harmonized_paths <- file.path(version_dirs, "Data", "Harmonized")
+
+harmonized_paths <- harmonized_paths[dir.exists(harmonized_paths)]
+
+all_dta_files <- list_dta_files(harmonized_paths)
+
+print("Dta files collected")
+
+parsed <- bind_rows(lapply(all_dta_files, parse_metadata_from_filename))
 
 latest_versions <- parsed %>%
   group_by(country, year, survey) %>%
@@ -112,7 +114,6 @@ if (length(new_files) > 0) {
   print(new_filenames)
 
   meta_details <- latest_versions %>% filter(dta_path %in% new_files)
-  meta_details$filename <- sub("\\.dta$", "", meta_details$dta_path)
 
   new_meta <- tibble(
     filename = dataset_names,
@@ -138,20 +139,24 @@ if (length(new_files) > 0) {
 
   copy_to(sc, new_meta, "tmp_new_meta", overwrite = TRUE)
 
+  cols <- colnames(new_meta)
+
   DBI::dbExecute(
-      sc,
-      paste0(
-        "
-        INSERT INTO ", metadata_table, "
-        SELECT t.*
-        FROM tmp_new_meta t
-        LEFT ANTI JOIN ", metadata_table, " m
-        ON t.dta_path = m.dta_path
-        "
-      )
+    sc,
+    paste0(
+      "
+      INSERT INTO ", metadata_table, " (", paste(cols, collapse = ", "), ")
+      SELECT ", paste(paste0("t.", cols), collapse = ", "), "
+      FROM tmp_new_meta t
+      LEFT ANTI JOIN ", metadata_table, " m
+      ON t.dta_path = m.dta_path
+      "
     )
+  )
 
   DBI::dbExecute(sc, "DROP TABLE IF EXISTS tmp_new_meta")
 }
+
+
 
 

@@ -16,10 +16,8 @@ metadata <- tbl(sc, metadata_table) %>% collect()
 
 unpublished <- metadata %>% 
   filter(published == FALSE,
-    !is.na(version_label),
-    nzchar(trimws(version_label))
+    is.na(do_path)
   )
-
 
 # --- find do files paths  ---
 find_do_files <- function(harmonized_path, filename) {

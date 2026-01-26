@@ -145,6 +145,7 @@ make_mdl_json <- function(row) {
     idno = idno_val,
     collection_ids = list(824),
     template_uid = "microdata-system-en",
+    type = "microdata",
     overwrite = "no",
 
     doc_desc = list(
@@ -233,7 +234,7 @@ make_mdl_json <- function(row) {
 
       version_statement = list(
         version = paste0("Version ", row$A_version,
-                         ": Harmonized, anonymized dataset for, ", row$classification, "distribution."),
+                         ": Harmonized, anonymized dataset for, ", row$classification, " distribution."),
         version_date = prod_ym,
         version_notes = safe(row$version_label)
       ),
@@ -245,8 +246,7 @@ make_mdl_json <- function(row) {
 
       study_info = list(
         abstract = paste0(
-          "Statistical agencies in nearly every nation conduct household surveys which provide individual-level information. However, the datasets are often difficult to access and not readily comparable across countries or across time. This greatly hampers their use for comparative studies of developing economies. The Global Labor Datase (GLD) is a worldwide collection of standardised microdata drawn from representative household surveys and consisting of a standardized set of geographic, sociodemographic, migration, education, and labour market variables.
-          GLD draws on different types of surveys, usually conducted by national statistical agencies, like Labour Force Surveys, and multi-topic surveys (such as Living Standards Measurement Study Surveys). GLD aims to be a collaborative and reactive database that allows researchers to not just use the data but to share with them every step from raw survey to harmonized output. GLD allows cross-country comparisons and analysis at various disaggregation levels: gender, urban-rural, age cohorts, or employment status.",
+          "Statistical agencies in nearly every nation conduct household surveys which provide individual-level information. However, the datasets are often difficult to access and not readily comparable across countries or across time. This greatly hampers their use for comparative studies of developing economies. The Global Labor Datase (GLD) is a worldwide collection of standardised microdata drawn from representative household surveys and consisting of a standardized set of geographic, sociodemographic, migration, education, and labour market variables. GLD draws on different types of surveys, usually conducted by national statistical agencies, like Labour Force Surveys, and multi-topic surveys (such as Living Standards Measurement Study Surveys). GLD aims to be a collaborative and reactive database that allows researchers to not just use the data but to share with them every step from raw survey to harmonized output. GLD allows cross-country comparisons and analysis at various disaggregation levels: gender, urban-rural, age cohorts, or employment status.",
           abstract_tail
         ),
 
@@ -294,14 +294,13 @@ make_mdl_json <- function(row) {
             )
           ),
           cit_req = paste0(
-            "Use of the dataset must be acknowledged using a citation which would include:
-            - the Identification of the Primary Investigator
-            - the title of the survey (including country, acronym and year of implementation)
-            - the survey reference number
-            - the source and date of download
-
-            Example:
-            World Bank. ", row$survey_extended, row$year,
+            "Use of the dataset must be acknowledged using a citation which would include:\n",
+            "- the Identification of the Primary Investigator\n",
+            "- the title of the survey (including country, acronym and year of implementation)\n",
+            "- the survey reference number\n",
+            "- the source and date of download\n\n",
+            "Example:\n",
+            "World Bank. ", row$survey_extended, " ", row$year,
             ", Global Labour Database Harmonized Dataset. Ref: ", row$filename,
             ". Dataset downloaded from [url] on [date]."
           ),
@@ -352,7 +351,7 @@ for (i in 1:nrow(merged_df)) {
   tryCatch({
     row <- merged_df[i, ]
     json_obj <- make_mdl_json(row)
-    out_path <- paste0(json_dir, row$filename, ".json")
+    out_path <- file.path(json_dir, paste0("DDI_", row$filename, "_WB.json"))
     write_json(json_obj, out_path, pretty = TRUE, auto_unbox = TRUE)
     message("JSON created for ", row$filename)
   }, error = function(e) {

@@ -1,17 +1,18 @@
+%pip install pyreadstat
+
 import os
 import pandas as pd
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, lit, first
 from pyspark.sql.utils import AnalysisException
 import gc
-%pip install pyreadstat
 import pyreadstat
 
 
 spark = SparkSession.builder.getOrCreate()
 
-target_schema  <- "prd_csc_mega.sgld48"
-metadata_table <- paste0(target_schema, "._ingestion_metadata")
+target_schema = "prd_csc_mega.sgld48"
+metadata_table = f"{target_schema}._ingestion_metadata"
 
 CHUNK_THRESHOLD_MB = 900
 CHUNK_SIZE = 5000
@@ -39,7 +40,7 @@ def make_table_name(path):
     nm = "".join(c if c.isalnum() else "_" for c in nm)
     while "__" in nm:
         nm = nm.replace("__", "_")
-    return nm
+    return nm.lower()
 
 
 def update_metadata(dta_path, tbl_name, harm_type, household_level):
@@ -68,13 +69,78 @@ def get_stata_var_labels(dta_path):
 
 def apply_column_comments(full_table_name, var_labels):
     for col_name, label in var_labels.items():
-        safe_label = label.replace("'", "''")
-        safe_col = col_name.replace("`", "``")
-        spark.sql(f"""
-            ALTER TABLE {full_table_name}
-            ALTER COLUMN `{col_name}`
-            COMMENT '{safe_label}'
-        """)
+        try:
+            if label is None:
+                continue
+
+            safe_label = (str(label)
+                .replace("\x00", " ")
+                .replace("\r", " ")
+                .replace("\n", " ")
+                .strip()
+                .replace("'", "")
+            )
+
+            spark.sql(
+                f"ALTER TABLE {full_table_name} "
+                f"ALTER COLUMN `{col_name}` "
+                f"COMMENT '{safe_label}'"
+            )
+
+        except Exception as e:
+            print(f"Skipping comment for {full_table_name}.{col_name}: {e}")
+
+
+def compute_stacking(pdf):
+    out = pdf.copy()
+
+    # default: stacking = 1
+    out["stacking"] = 1
+
+    # add 0 for panel tables
+    is_panel = out["table_name"].astype(str).str.contains("panel", case=False, na=False)
+    out.loc[is_panel, "stacking"] = 0
+
+    # annual rows only (quarter null/empty) can conflict on country-year
+    is_annual = out["quarter"].isna() | (out["quarter"].astype(str).str.strip() == "")
+    annual = out[is_annual]
+
+    # duplicates among annual (country, year)
+    conflict_mask = annual.duplicated(subset=["country", "year"], keep=False)
+
+    if conflict_mask.any():
+        conflicted = annual[conflict_mask].copy()
+
+        # priority: GLD over GLD-Light
+        harm_prio = (
+            conflicted["harmonization"]
+            .map({"GLD": 2, "GLD-Light": 1})
+            .fillna(0)
+            .astype(int)
+        )
+
+        conflicted["harm_prio"] = harm_prio
+
+        # best first
+        conflicted = conflicted.sort_values(
+            ["country", "year", "harm_prio", "M_version", "A_version"],
+            ascending=[True, True, False, False, False],
+        )
+
+        # pick winner per (country, year)
+        winners = conflicted.drop_duplicates(
+            subset=["country", "year"], keep="first"
+        ).index
+
+        # set all conflicted annual rows to 0, then winners to 1
+        out.loc[conflicted.index, "stacking"] = 0
+        out.loc[winners, "stacking"] = 1
+
+        # panel always stays 0
+        out.loc[is_panel, "stacking"] = 0
+
+    return out
+    
 
 # --- ingest ----
 
@@ -92,7 +158,19 @@ for dta_path in metadata["dta_path"]:
         exists = any(t.name == tbl_name for t in tbl_exists)
 
         if exists:
-            print("Table exists. Skipping")
+            print("Table exists. Updating missing metadata")
+
+            sdf = spark.table(full_table_name)
+
+            cols = sdf.columns
+
+            harm_type = None
+            if "harmonization" in cols: harm_type = sdf.select("harmonization").limit(1).collect()[0][0]
+
+            household_level = ("hhid" in cols and sdf.select("hhid").filter(col("hhid").isNotNull()).limit(1).count() > 0)
+
+            update_metadata(dta_path, tbl_name, harm_type, household_level)
+
             continue
 
         size_mb = os.path.getsize(dta_path) / (1024 * 1024)
@@ -115,9 +193,8 @@ for dta_path in metadata["dta_path"]:
             sdf.write.mode("overwrite").format("delta").saveAsTable(full_table_name)
 
             var_labels = get_stata_var_labels(dta_path)
-            print("labels:", list(var_labels.items())[:10])
+            #print("labels:", list(var_labels.items())[:10])
             apply_column_comments(full_table_name, var_labels)
-
             update_metadata(dta_path, tbl_name, harm_type, household_level)
             continue
 
@@ -182,7 +259,25 @@ for dta_path in metadata["dta_path"]:
     gc.collect()
 
 
-print("Ingestion complete.")
+# --- update stacking for all ingested tables ---
+
+metadata = spark.read.table(metadata_table).toPandas()
+metadata = metadata[metadata["ingested"] == True].copy()
+
+metadata = compute_stacking(metadata)
+
+updates = metadata[["dta_path", "stacking"]].drop_duplicates()
+
+spark.createDataFrame(updates).createOrReplaceTempView("stacking_updates")
+
+spark.sql(f"""
+MERGE INTO {metadata_table} t
+USING stacking_updates s
+ON t.dta_path = s.dta_path
+WHEN MATCHED THEN UPDATE SET t.stacking = s.stacking
+""")
+
+print("Done: stacking updated.")
 
 
 
