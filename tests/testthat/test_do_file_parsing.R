@@ -99,7 +99,6 @@ Some footer text
   expect_true(any(grepl("Initial version", unlist(result))))
   expect_true(any(grepl("Added new variables", unlist(result))))
   expect_true(any(grepl("Fixed coding errors", unlist(result))))
-  # TODO: fix
   expect_false(any(grepl("version control", unlist(result), ignore.case = TRUE)))
   expect_false(any(grepl("<", unlist(result))))
 })
@@ -113,6 +112,7 @@ test_that("extract_version_control handles missing start tag with end tag", {
   expect_true(length(result) >= 2)
   expect_true(any(grepl("First change", unlist(result))))
   expect_true(any(grepl("Second change", unlist(result))))
+  expect_false(any(grepl("version control", unlist(result), ignore.case = TRUE)))
 })
 
 test_that("extract_version_control handles missing end tag with start tag", {
@@ -123,6 +123,7 @@ Some other content"
 
   expect_equal(length(result), 1)
   expect_true(grepl("Only change", result$V01))
+  expect_false(any(grepl("version control", unlist(result), ignore.case = TRUE)))
 })
 
 test_that("extract_version_control returns empty list when no tags present", {
@@ -143,18 +144,11 @@ test_that("extract_version_control handles multi-line bullet entries", {
 
   expect_true(length(result) >= 2)
   expect_true(any(grepl("continues on the next line", unlist(result))))
-  # TODO: fix
   expect_false(any(grepl("version control", unlist(result), ignore.case = TRUE)))
   expect_false(any(grepl("<", unlist(result))))
 })
 
 # --- Tests for extract_v_text ---
-
-test_that("extract_v_text removes version control tags", {
-  raw <- "<_version control_> Some version text"
-  result <- extract_v_text(raw)
-  expect_false(grepl("version control", result, ignore.case = TRUE))
-})
 
 test_that("extract_v_text removes Date: prefix", {
   raw <- "Date: 2023-01-15 - Added new feature"

@@ -55,8 +55,9 @@ extract_version_control <- function(text) {
 
   # case 1: proper start–end block
   if (!is.na(start) && !is.na(end) && end > start) {
-    section_text <- substr(text, start, end)
+    section_text <- substr(text, start, end - 1)
     section <- unlist(strsplit(section_text, "\n"))
+    section <- section[!stringr::str_detect(tolower(section), stringr::fixed(start_tag))]
 
   # case 2: Missing start tag, but end tag exists
   } else if (!is.na(end)) {
@@ -80,7 +81,7 @@ extract_version_control <- function(text) {
   # case 3: Start tag exists, but end tag missing
   } else if (!is.na(start) && is.na(end)) {
     # find the start line
-    start_idx <- which(stringr::str_detect(lower, start_tag))[1]
+    start_idx <- which(stringr::str_detect(tolower(lines), start_tag))[1]
 
     section <- character()
     for (ln in lines[(start_idx + 1):length(lines)]) {
@@ -137,11 +138,6 @@ extract_v_text <- function(raw) {
   if (is.na(raw)) return("")
 
   s <- trimws(as.character(raw))
-
-  # Q: shouldn't all the version control tags have been removed by this point?
-  # Remove <_version control_> tag variants
-  s <- gsub("(?i)<\\s*_?version control_?\\s*>", "", s, perl = TRUE)
-  s <- trimws(s)
 
   # Remove leading "Date:"
   s <- gsub("(?i)^\\s*date\\s*[:\\-]*\\s*", "", s, perl = TRUE)
