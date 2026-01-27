@@ -1,81 +1,92 @@
 library(purrr)
 library(dplyr)
-library(sparklyr)
 
 source("helpers/config.R")
 source("helpers/do_file_parsing.R")
 
-sc <- spark_connect(method = "databricks")
+is_databricks <- function() {
+  nzchar(Sys.getenv("DATABRICKS_RUNTIME_VERSION")) ||
+    nzchar(Sys.getenv("DB_HOME")) ||
+    nzchar(Sys.getenv("DATABRICKS_CLUSTER_ID"))
+}
 
-metadata <- tbl(sc, METADATA_TABLE) %>% collect()
+compute_metadata_updates <- function(metadata) {
+  unpublished <- metadata %>%
+    filter(
+      published == FALSE,
+      is.na(do_path)
+    )
 
-unpublished <- metadata %>%
-  filter(published == FALSE,
-    is.na(do_path)
-  )
+  unpublished <- unpublished %>%
+    mutate(do_path = map2_chr(dta_path, filename, find_do_files))
 
-unpublished <- unpublished %>%
-  mutate(do_path = map2_chr(dta_path, filename, find_do_files))
+  # --- parse the do files ---
+  parsed_rows <- lapply(seq_len(nrow(unpublished)), function(i) {
+    row <- unpublished[i, ]
+    do_file <- row$do_path[[1]]
 
-# --- parse the do files ---
+    if (is.character(do_file) && file.exists(do_file)) {
+      info <- parse_do_file(do_file)
+    } else {
+      info <- list()
+    }
 
-parsed_rows <- lapply(seq_len(nrow(unpublished)), function(i) {
-  row <- unpublished[i, ]
-  do_file <- row$do_path[[1]]
+    info$filename <- row$filename
+    info
+  })
 
-  if (is.character(do_file) && file.exists(do_file)) {
-    info <- parse_do_file(do_file)
-  } else {
-    info <- list()
-  }
+  parsed_df <- bind_rows(parsed_rows)
 
-  info$filename <- row$filename
-  info
-})
+  # --- compute version ---
+  v_cols <- grep("^V\\d{2}$", names(parsed_df), value = TRUE)
 
-parsed_df <- bind_rows(parsed_rows)
+  parsed_df$latest_v_text <- apply(parsed_df[v_cols], 1, function(x) {
+    select_latest_version(as.list(x), v_cols)
+  })
 
-# --- compute version ---
+  parsed_df$version_label <- sapply(parsed_df$latest_v_text, make_version_label)
 
-v_cols <- grep("^V\\d{2}$", names(parsed_df), value = TRUE)
-
-parsed_df$latest_v_text <- apply(parsed_df[v_cols], 1, function(x) {
-  select_latest_version(as.list(x), v_cols)
-})
-
-parsed_df$version_label <- sapply(parsed_df$latest_v_text, make_version_label)
-
-# --- add to metadata table ---
-
-metadata <- metadata %>%
-  mutate(
-    version_label = coalesce(parsed_df$version_label[ match(filename, parsed_df$filename) ],version_label),
-    do_path = coalesce(unpublished$do_path[ match(filename, unpublished$filename) ],do_path)
-  )
-
-
-
-copy_to(sc, metadata, "tmp_new_meta", overwrite = TRUE)
-
-DBI::dbExecute(
-  sc,
-  paste0(
-    "UPDATE ", METADATA_TABLE, " AS m ",
-    "SET
-      version_label = (
-        SELECT ANY_VALUE(p.version_label)
-        FROM tmp_new_meta p
-        WHERE p.filename = m.filename
+  # --- add to metadata table ---
+  metadata %>%
+    mutate(
+      version_label = coalesce(
+        parsed_df$version_label[match(filename, parsed_df$filename)],
+        version_label
       ),
-      do_path = (
-        SELECT ANY_VALUE(p.do_path)
-        FROM tmp_new_meta p
-        WHERE p.filename = m.filename
+      do_path = coalesce(
+        unpublished$do_path[match(filename, unpublished$filename)],
+        do_path
       )
-    WHERE m.filename IN (SELECT filename FROM tmp_new_meta)"
+    )
+}
+
+if (is_databricks()) {
+  library(sparklyr)
+  sc <- spark_connect(method = "databricks")
+
+  metadata <- tbl(sc, METADATA_TABLE) %>% collect()
+  metadata <- compute_metadata_updates(metadata)
+
+  copy_to(sc, metadata, "tmp_new_meta", overwrite = TRUE)
+
+  DBI::dbExecute(
+    sc,
+    paste0(
+      "UPDATE ", METADATA_TABLE, " AS m ",
+      "SET
+        version_label = (
+          SELECT ANY_VALUE(p.version_label)
+          FROM tmp_new_meta p
+          WHERE p.filename = m.filename
+        ),
+        do_path = (
+          SELECT ANY_VALUE(p.do_path)
+          FROM tmp_new_meta p
+          WHERE p.filename = m.filename
+        )
+      WHERE m.filename IN (SELECT filename FROM tmp_new_meta)"
+    )
   )
-)
 
-
-DBI::dbExecute(sc, "DROP TABLE IF EXISTS tmp_new_meta")
-
+  DBI::dbExecute(sc, "DROP TABLE IF EXISTS tmp_new_meta")
+}
