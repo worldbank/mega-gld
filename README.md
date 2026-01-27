@@ -38,3 +38,14 @@ ___
 **Script 3b** [forthcoming. manages json creation of the stacked table]
 ___
 **Script 4b** [forthcoming. manages json publication of the stacked table]
+
+## Tests
+Run the full test suite from the repo root:
+```r
+Rscript tests/testthat.R
+```
+
+Run a single test file:
+```r
+R -e 'testthat::test_file("tests/testthat/test_do_file_parsing.R")'
+```
