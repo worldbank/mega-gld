@@ -355,7 +355,7 @@ for (i in 1:nrow(merged_df)) {
     write_json(json_obj, out_path, pretty = TRUE, auto_unbox = TRUE)
     message("JSON created for ", row$filename)
   }, error = function(e) {
-      warning("FAILED to create JSON for ", row$filename ,conditionMessage(e))
+      warning("FAILED to create JSON for ", row$filename, ", ", conditionMessage(e))
   })
 }
 

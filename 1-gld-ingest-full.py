@@ -253,7 +253,7 @@ for dta_path in metadata["dta_path"]:
     except Exception as e:
         print(f"ERROR ingesting {dta_path}: {e}")
 
-    for obj in ["reader", "pdf", "first_chunk", "chunk", "reader", "spark_df", "spark_schema"]:
+    for obj in ["reader", "pdf", "first_chunk", "chunk", "spark_df", "spark_schema"]:
         if obj in locals():
             del locals()[obj]
     gc.collect()

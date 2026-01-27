@@ -51,11 +51,11 @@ find_do_files <- function(harmonized_path, filename) {
       return(no_suffix)
     }
 
-    warning("No .do file or mupltiple .do files detected for ", filename,"; none selected.")
+    warning("No .do file or multiple .do files detected for ", filename,"; none selected.")
     return("")
   }
   
-  warning("No .do file or mupltiple .do files detected for ", filename,"; none selected.")
+  warning("No .do file or multiple .do files detected for ", filename,"; none selected.")
   return("")
 }
 
@@ -288,7 +288,7 @@ DBI::dbExecute(
   sc,
   paste0(
     "UPDATE ", metadata_table, " AS m ",
-    "SET 
+    "SET
       version_label = (
         SELECT ANY_VALUE(p.version_label)
         FROM tmp_new_meta p

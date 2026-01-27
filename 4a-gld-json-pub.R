@@ -35,7 +35,7 @@ BASE <- "https://metadataeditor.worldbank.org/index.php/api/"
  
 # --- helpers
 
-## This function creates a project in the Metadata Editor bu uploading the json file
+## This function creates a project in the Metadata Editor by uploading the json file
 create_dataset <- function(json_data, api_key){
   url <- paste0(BASE, "editor/create/survey")
   resp <- httr::POST(
@@ -389,11 +389,9 @@ results <- lapply(json_files, function(jfile){
     update_metadata(fname_base)
     file.remove(jfile)
     message("Deleted json file: ", jfile)
-
-      } else {
-        message("Skipping metadata update (publish failed) for: ", fname_base)
-      }
-
+  } else {
+    message("Skipping metadata update (publish failed) for: ", fname_base)
+  }
   message("Dataset processing complete")
  
 })

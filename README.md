@@ -26,7 +26,7 @@ ___
 Both `do_path` and `version_label` are stored in the __ingestion_metadata_ table.
 > Once we have agreed on a standardized template for extracting data classification from the "Where is this data from?.txt" files, this script will also contained parsing code for `classification`, and will add `classification` to the __ingestion_metadata_ table.
 ___
-**Script 3a (3a-gls-json-creation.R):** creates all the .json files from metadata in the __ingestion_metadata_ table, using the supporting files _countries.csv_, and _survey_metadata.csv_, and saves them in the json_temp folder. It also computes and verifies github links for those surveys that have documentation published in github.
+**Script 3a (3a-gld-json-creation.R):** creates all the .json files from metadata in the __ingestion_metadata_ table, using the supporting files _countries.csv_, and _survey_metadata.csv_, and saves them in the json_temp folder. It also computes and verifies github links for those surveys that have documentation published in github.
 ___
 **Script 4a (4a-gls-json-pub.R):** publishes all the json files in json_temp, alongside the corresponding datasets (using the file in the `dta_path` column of the __ingestion_metadata_ table), .do files (using the file in the `do_path` column of the __ingestion_metadata_ table) and technical documentation/questionnaires (found in the corresponding Docs folder). 
 > Please note that the environment variable "NADA_API_KEY" is used to publish. if the API key needs to be updated, follow [these instructions](https://docs.databricks.com/aws/en/security/secrets/). The scope is GLDKEYVAULT, and it can be managed by anyone in the ITSDA-LKHS-DAP-PROD-gld team.
