@@ -1,4 +1,7 @@
 # Databricks notebook source
+# MAGIC %run "./helpers/config"
+
+# COMMAND ----------
 
 library(dplyr)
 
