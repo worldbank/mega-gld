@@ -1,7 +1,22 @@
+# Databricks notebook source
 library(dplyr)
 
-source("helpers/config.R")
-source("helpers/filename_parsing.R")
+# COMMAND ----------
+
+# MAGIC %run "./helpers/config"
+
+# COMMAND ----------
+
+# MAGIC %run "./helpers/filename_parsing"
+
+# COMMAND ----------
+
+if (!exists("is_databricks")) {
+  source("helpers/config.r")
+}
+if (!exists("list_dta_files")) {
+  source("helpers/filename_parsing.r")
+}
 
 identify_latest_versions <- function(root_dir) {
   country_dirs <- list.dirs(root_dir, recursive = FALSE)

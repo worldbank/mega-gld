@@ -1,8 +1,23 @@
+# Databricks notebook source
 library(purrr)
 library(dplyr)
 
-source("helpers/config.R")
-source("helpers/do_file_parsing.R")
+# COMMAND ----------
+
+# MAGIC %run "./helpers/config"
+
+# COMMAND ----------
+
+# MAGIC %run "./helpers/filename_parsing"
+
+# COMMAND ----------
+
+if (!exists("is_databricks")) {
+  source("helpers/config.r")
+}
+if (!exists("find_do_files")) {
+  source("helpers/do_file_parsing.r")
+}
 
 compute_metadata_updates <- function(metadata) {
   unpublished <- metadata %>%
