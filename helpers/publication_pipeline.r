@@ -10,6 +10,12 @@ library(sparklyr)
 
 # COMMAND ----------
 
+if (!exists("is_databricks")) {
+  source("helpers/config.r")
+}
+
+# COMMAND ----------
+
 ## This function creates a project in the Metadata Editor by uploading the json file
 create_dataset <- function(json_data, ME_API_KEY){
   url <- paste0(METADATA_API_BASE, "editor/create/survey")

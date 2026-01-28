@@ -1,7 +1,6 @@
 # Databricks notebook source
 library(jsonlite)
 library(httr)
-library(sparklyr)
 library(dplyr)
 library(stringr)
 library(fs)
@@ -20,7 +19,18 @@ library(readxl)
 
 # COMMAND ----------
 
+if (!exists("is_databricks")) {
+  source("helpers/config.r")
+}
+
+if (!exists("create_dataset")) {
+  source("helpers/publication_pipeline.r")
+}
+
+# COMMAND ----------
+
 if (is_databricks()) {
+  library(sparklyr)
   sc <- spark_connect(method = "databricks")
 
   metadata <- tbl(sc, METADATA_TABLE) %>% collect()

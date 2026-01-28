@@ -8,6 +8,12 @@ library(tibble)
 
 # COMMAND ----------
 
+if (!exists("make_mdl_json")) {
+  source("helpers/json_builder.r")
+}
+
+# COMMAND ----------
+
 
 make_minimal_row <- function(overrides = list()) {
   base <- list(

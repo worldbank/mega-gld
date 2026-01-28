@@ -11,6 +11,12 @@ library(jsonlite)
 
 # COMMAND ----------
 
+if (!exists("make_mdl_json")) {
+  source("helpers/json_builder.r")
+}
+
+# COMMAND ----------
+
 fetch_countries_names <- function(sc, country_table = "prd_mega.indicator.country") {
   tbl(sc, country_table) %>%
     select(code = country_code, name = country_name) %>%

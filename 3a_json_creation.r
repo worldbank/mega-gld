@@ -1,7 +1,5 @@
 # Databricks notebook source
 library(dplyr)
-library(sparklyr)
-
 
 # COMMAND ----------
 
@@ -17,7 +15,18 @@ library(sparklyr)
 
 # COMMAND ----------
 
+if (!exists("is_databricks")) {
+  source("helpers/config.r")
+}
+if (!exists("gh_list_dirs")) {
+  source("helpers/gh_links_parsing.r")
+}
+if (!exists("fetch_countries_names")) {
+  source("helpers/json_pipeline.r")
+}
+
 if (is_databricks()) {
+  library(sparklyr)
   sc <- spark_connect(method = "databricks")
 
   metadata <- tbl(sc, METADATA_TABLE) %>% collect()

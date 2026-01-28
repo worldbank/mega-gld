@@ -15,6 +15,18 @@ library(withr)
 
 # COMMAND ----------
 
+if (!exists("is_databricks")) {
+  source("helpers/config.r")
+}
+
+# COMMAND ----------
+
+if (!exists("create_dataset")) {
+  source("helpers/publication_pipeline.r")
+}
+
+# COMMAND ----------
+
 config <- list(
   run_integration = TRUE,
   metadata_api_base = METADATA_API_BASE, 

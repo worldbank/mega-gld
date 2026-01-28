@@ -9,6 +9,12 @@ library(withr)
 
 # COMMAND ----------
 
+if (!exists("gh_list_dirs")) {
+  source("helpers/gh_links_parsing.r")
+}
+
+# COMMAND ----------
+
 test_that("build_valid_pairs_df returns empty tibble when API fails", {
 
   old <- gh_list_dirs

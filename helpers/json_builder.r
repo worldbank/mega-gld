@@ -12,6 +12,15 @@ library(stringr)
 
 # COMMAND ----------
 
+if (!exists("is_databricks")) {
+  source("helpers/config.r")
+}
+if (!exists("GLD_TEAM_NAME")) {
+  source("helpers/json_text.r")
+}
+
+# COMMAND ----------
+
 make_mdl_json <- function(row, countries_names) {
   # ---- formatting helpers ----
   safe <- function(x) {
