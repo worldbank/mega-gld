@@ -8,6 +8,9 @@ library(stringr)
 
 # COMMAND ----------
 
+# MAGIC %run "./config"
+
+# COMMAND ----------
 
 make_mdl_json <- function(row, countries_names) {
   # ---- formatting helpers ----
@@ -50,7 +53,7 @@ make_mdl_json <- function(row, countries_names) {
   # --- populate the json ---
   json <- list(
     idno = idno_val,
-    collection_ids = list(824),
+    collection_ids = list(REPOSITORY_ID),
     template_uid = "microdata-system-en",
     type = "microdata",
     overwrite = "no",

@@ -17,12 +17,6 @@ library(sparklyr)
 
 # COMMAND ----------
 
-is_databricks <- function() {
-  nzchar(Sys.getenv("DATABRICKS_RUNTIME_VERSION")) ||
-    nzchar(Sys.getenv("DB_HOME")) ||
-    nzchar(Sys.getenv("DATABRICKS_CLUSTER_ID"))
-}
-
 if (is_databricks()) {
   sc <- spark_connect(method = "databricks")
 

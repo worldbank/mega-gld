@@ -16,8 +16,10 @@ GH_PATH   <- "Support/B%20-%20Country%20Survey%20Details"
 GH_API_BASE <- paste0("https://api.github.com/repos/", GH_OWNER, "/", GH_REPO, "/contents")
 GH_HTML_BASE <- paste0("https://github.com/", GH_OWNER, "/", GH_REPO, "/tree/", GH_BRANCH, "/", GH_PATH)
 
-# API
+# MDL
 METADATA_API_BASE <- "https://metadataeditor.worldbank.org/index.php/api/"
+REPOSITORY_ID <- 824
+CATALOG_CONN_ID <- 43
 
 # Environment detection
 is_databricks <- function() {
