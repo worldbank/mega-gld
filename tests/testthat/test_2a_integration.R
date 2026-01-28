@@ -6,7 +6,7 @@ library(withr)
 
 repo_root <- normalizePath(file.path("..", ".."), mustWork = TRUE)
 withr::local_dir(repo_root)
-source(file.path(repo_root, "2a-gld-metadata-parse.R"))
+source(file.path(repo_root, "2a_metadata_parsing.r"))
 
 test_that("metadata parsing pipeline updates do_path and version_label for unpublished rows", {
 

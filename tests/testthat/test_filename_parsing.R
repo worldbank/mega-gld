@@ -1,6 +1,6 @@
 library(testthat)
 
-source(file.path(dirname(dirname(getwd())), "helpers", "filename_parsing.R"))
+source(file.path(dirname(dirname(getwd())), "helpers", "filename_parsing.r"))
 
 # --- Tests for list_dta_files ---
 

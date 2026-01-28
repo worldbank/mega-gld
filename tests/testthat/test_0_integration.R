@@ -4,7 +4,7 @@ library(withr)
 
 repo_root <- normalizePath(file.path("..", ".."), mustWork = TRUE)
 withr::local_dir(repo_root)
-source(file.path(repo_root, "0-gld-identify-delta.R"))
+source(file.path(repo_root, "0_delta_identification.r"))
 
 test_that("delta identification pipeline finds dta files and filters to latest versions", {
   tmp <- tempdir()

@@ -1,6 +1,6 @@
 library(testthat)
 
-source(file.path(dirname(dirname(getwd())), "helpers", "do_file_parsing.R"))
+source(file.path(dirname(dirname(getwd())), "helpers", "do_file_parsing.r"))
 
 # --- Tests for find_do_files ---
 # Structure: base/dataset_folder/version_folder/Data/Harmonized
