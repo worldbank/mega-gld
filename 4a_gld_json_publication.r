@@ -12,7 +12,11 @@ library(readxl)
 # COMMAND ----------
 
 # MAGIC %run "./helpers/config"
-# MAGIC %run "./helpers/publication"
+# MAGIC
+
+# COMMAND ----------
+
+# MAGIC %run "./helpers/publication_pipeline"
 
 # COMMAND ----------
 

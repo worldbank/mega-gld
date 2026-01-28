@@ -11,8 +11,6 @@ library(jsonlite)
 
 # COMMAND ----------
 
-
-
 fetch_countries_names <- function(sc, country_table = "prd_mega.indicator.country") {
   tbl(sc, country_table) %>%
     select(code = country_code, name = country_name) %>%

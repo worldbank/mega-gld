@@ -9,7 +9,7 @@ library(sparklyr)
 
 # COMMAND ----------
 
-# MAGIC %run "./helpers/gh_links"
+# MAGIC %run "./helpers/gh_links_parsing"
 
 # COMMAND ----------
 
