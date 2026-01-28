@@ -8,7 +8,7 @@ library(dplyr)
 
 # COMMAND ----------
 
-# MAGIC %run "./helpers/filename_parsing"
+# MAGIC %run "./helpers/do_file_parsing"
 
 # COMMAND ----------
 
@@ -26,10 +26,17 @@ compute_metadata_updates <- function(metadata) {
       is.na(do_path)
     )
 
+  print(paste("Found", nrow(unpublished), "unpublished records missing do_path"))
+
+  if (nrow(unpublished) == 0) {
+    return(metadata)
+  }
+
+  print("Finding do files...")
   unpublished <- unpublished %>%
     mutate(do_path = map2_chr(dta_path, filename, find_do_files))
 
-  # --- parse the do files ---
+  print("Parsing do files...")
   parsed_rows <- lapply(seq_len(nrow(unpublished)), function(i) {
     row <- unpublished[i, ]
     do_file <- row$do_path[[1]]
@@ -45,6 +52,7 @@ compute_metadata_updates <- function(metadata) {
   })
 
   parsed_df <- bind_rows(parsed_rows)
+  print(paste("Parsed", nrow(parsed_df), "do files"))
 
   # --- compute version ---
   v_cols <- grep("^V\\d{2}$", names(parsed_df), value = TRUE)
@@ -53,7 +61,7 @@ compute_metadata_updates <- function(metadata) {
     select_latest_version(as.list(x), v_cols)
   })
 
-  parsed_df$version_label <- sapply(parsed_df$latest_v_text, make_version_label)
+  parsed_df$version_label <- vapply(parsed_df$latest_v_text, make_version_label, character(1))
 
   # --- add to metadata table ---
   metadata %>%
@@ -73,10 +81,18 @@ if (is_databricks()) {
   library(sparklyr)
   sc <- spark_connect(method = "databricks")
 
+  print("Loading metadata table...")
   metadata <- tbl(sc, METADATA_TABLE) %>% collect()
-  metadata <- compute_metadata_updates(metadata)
+  print(paste("Loaded", nrow(metadata), "records"))
 
-  copy_to(sc, metadata, "tmp_new_meta", overwrite = TRUE)
+  updated_metadata <- compute_metadata_updates(metadata)
+
+  if (identical(metadata, updated_metadata)) {
+    return(print("No updates needed"))
+  }
+
+  print("Updating metadata table...")
+  copy_to(sc, updated_metadata, "tmp_new_meta", overwrite = TRUE)
 
   DBI::dbExecute(
     sc,
@@ -98,4 +114,5 @@ if (is_databricks()) {
   )
 
   DBI::dbExecute(sc, "DROP TABLE IF EXISTS tmp_new_meta")
+  print("Done")
 }
