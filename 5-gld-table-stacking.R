@@ -78,6 +78,7 @@ schema_columns <- list(
   vocational_length_l = "integer",
   vocational_length_u = "integer",
   vocational_financed = "integer",
+  vocational_field = "integer",
   minlaborage = "double",
   lstatus = "integer",
   potential_lf = "integer",
@@ -190,21 +191,22 @@ expected_cols <- names(schema_columns)
 # TODO add this to the metadata table as a flag
 TO_REMOVE <- c('MEX_2023_ENOE_Panel_V01_M_V01_A_GLD_ALL', 'IND_2022_PLFS_Urban_Panel_V01_M_V01_A_GLD_ALL')
 # Delete the harmonized Delta table if it already exists
-HARMONIZED_CONFIDENTIAL <- paste0(TABLE_QULIFIER, "GLD_HARMONIZED_CONFIDENTIAL")
-HARMONIZED_OFFICIAL <- paste0(TABLE_QULIFIER, "GLD_HARMONIZED_OFFICIAL")
+HARMONIZED_CONFIDENTIAL <- paste0(TABLE_QULIFIER, "GLD_HARMONIZED_ALL")
+HARMONIZED_OFFICIAL <- paste0(TABLE_QULIFIER, "GLD_HARMONIZED_OUO")
 
-if (dbExistsTable(sc, HARMONIZED_CONFIDENTIAL)) {
-  DBI::dbExecute(sc, paste0("DROP TABLE ", HARMONIZED_CONFIDENTIAL))
-  print(paste0("Deleted existing table ", HARMONIZED_CONFIDENTIAL))
-}
+# Build the column definitions: "countrycode STRING, survname STRING..."
+columns_sql <- paste(names(schema_columns), toupper(unlist(schema_columns)), collapse = ", ")
 
-if (dbExistsTable(sc, HARMONIZED_OFFICIAL)) {
-  DBI::dbExecute(sc, paste0("DROP TABLE ", HARMONIZED_OFFICIAL))
-  print(paste0("Deleted existing table ", HARMONIZED_OFFICIAL))
-}
+# The SQL command
+create_query_confidential <- paste0("CREATE TABLE ", HARMONIZED_CONFIDENTIAL, " (", columns_sql, ") USING DELTA")
+create_query_official <- paste0("CREATE TABLE ", HARMONIZED_OFFICIAL, " (", columns_sql, ") USING DELTA")
 
-spark_write_table(aligned_df, HARMONIZED_CONFIDENTIAL, mode = "overwrite")
-spark_write_table(aligned_df, HARMONIZED_OFFICIAL, mode = "overwrite")
+# Execute
+DBI::dbExecute(sc, paste0("DROP TABLE IF EXISTS ", HARMONIZED_CONFIDENTIAL))
+DBI::dbExecute(sc, create_query_confidential)
+
+DBI::dbExecute(sc, paste0("DROP TABLE IF EXISTS ", HARMONIZED_OFFICIAL))
+DBI::dbExecute(sc, create_query_official)
 
 subnational_pattern <- "^subnatid\\d+(_prev)?$"
 gaul_pattern <- "^gaul_adm\\d+_code$"
@@ -255,6 +257,11 @@ for (i in 1:nrow(table_metadata)) {
       mutate_exprs[[dc]] <- sql(paste0("CAST(", dc, " AS string)"))
     }
   final_column_names <- c(expected_cols, dynamic_cols)
+
+  extra_cols <- setdiff(src_cols, final_column_names)
+  print(paste(extra_cols, collapse=", "))
+  if(length(extra_cols) > 0) print(paste("Extra columns found in", tbl, ":", paste(extra_cols, collapse=", ")))
+
   # 3. Apply the transformation in ONE single step
   # This keeps the Spark Execution Plan small and fast
   aligned_df <- src_df %>%
