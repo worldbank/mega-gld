@@ -1,4 +1,17 @@
 # Databricks notebook source
+
+
+# COMMAND ----------
+
+# Environment detection
+is_databricks <- function() {
+  nzchar(Sys.getenv("DATABRICKS_RUNTIME_VERSION")) ||
+    nzchar(Sys.getenv("DB_HOME")) ||
+    nzchar(Sys.getenv("DATABRICKS_CLUSTER_ID"))
+}
+
+IN_DATABRICKS <- is_databricks()
+
 # Paths
 ROOT_DIR <- "/Volumes/prd_csc_mega/sgld48/vgld48/Documents"
 JSON_DIR <- "/Volumes/prd_csc_mega/sgld48/vgld48/Workspace/json_to_publish"
@@ -21,9 +34,14 @@ METADATA_API_BASE <- "https://metadataeditor.worldbank.org/index.php/api/"
 REPOSITORY_ID <- 824
 CATALOG_CONN_ID <- 43
 
-# Environment detection
-is_databricks <- function() {
-  nzchar(Sys.getenv("DATABRICKS_RUNTIME_VERSION")) ||
-    nzchar(Sys.getenv("DB_HOME")) ||
-    nzchar(Sys.getenv("DATABRICKS_CLUSTER_ID"))
+if (IN_DATABRICKS) {
+  ME_API_KEY <- dbutils.secrets.get("GLDKEYVAULT","NADA_API_KEY")
+} else {
+  if (requireNamespace("dotenv", quietly = TRUE)) {
+    dotenv::load_dot_env()
+    }
+  ME_API_KEY <- Sys.getenv("NADA_API_KEY")
 }
+
+#API Integration Tests Config
+RUN_API_INTEGRATION = False

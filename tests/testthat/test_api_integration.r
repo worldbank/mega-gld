@@ -4,7 +4,6 @@ library(haven)
 library(zip)
 library(withr)
 
-
 # COMMAND ----------
 
 # MAGIC %run "../../helpers/config"
@@ -28,13 +27,13 @@ if (!exists("create_dataset")) {
 # COMMAND ----------
 
 config <- list(
-  run_integration = TRUE,
+  run_api_integration = RUN_API_INTEGRATION,
   metadata_api_base = METADATA_API_BASE, 
-  me_api_key = dbutils.secrets.get("GLDKEYVAULT","NADA_API_KEY"),
+  me_api_key = ME_API_KEY,
   project_id_for_upload = "25475"
 )
 
-if (!isTRUE(config$run_integration)) {
+if (!isTRUE(config$run_api_integration)) {
   message("Integration tests disabled in config. Skipping.")
 } else {
 

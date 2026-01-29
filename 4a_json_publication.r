@@ -39,7 +39,7 @@ if (is_databricks()) {
 
   merged_df <- left_join(metadata, survey, by = c("survey", "country"))
 
-  ME_API_KEY <- dbutils.secrets.get("GLDKEYVAULT","NADA_API_KEY")
+  ME_API_KEY <- ME_API_KEY
 
   json_files <- list.files(JSON_DIR, pattern="\\.json$", full.names=TRUE)
 
