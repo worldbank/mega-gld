@@ -6,18 +6,10 @@
 
 import pytest
 import os
+import subprocess, sys
+
 
 # COMMAND ----------
 
-os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
-os.environ["PYTEST_ADDOPTS"] = "--assert=plain"
-os.environ["PYTEST_CACHE_DIR"] = "/tmp/pytest_cache"
-
-# COMMAND ----------
-
-pytest.main([
-    "-q",
-    "--disable-warnings",
-    "pytest",
-])
+subprocess.run([sys.executable, "-m", "pytest", "-q", "--disable-warnings", "pytest"], check=False)
 

@@ -4,8 +4,13 @@ from unittest.mock import MagicMock, call
 
 import pandas as pd
 import pytest
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from helpers.ingestion_pipeline import *
+
 
 
 def _normalize_sql(s: str) -> str:
@@ -14,24 +19,29 @@ def _normalize_sql(s: str) -> str:
 @pytest.mark.parametrize(
     "harm_type,household_level,table_version,expected_fragments,unexpected_fragments",
     [
+        # --- Case 1: all NULLs (but ingested is always TRUE) ---
         (
             None, None, None,
             [
+                "ingested = TRUE",
                 "harmonization = NULL",
                 "household_level = NULL",
                 "table_version = NULL",
             ],
             [
-                "'None'",  
+                "'None'",
                 "harmonization = 'None'",
                 "household_level = TRUE",
                 "household_level = FALSE",
                 "table_version = 'None'",
             ],
         ),
+
+        # --- Case 2: typical positive values ---
         (
             "GLD", True, 12,
             [
+                "ingested = TRUE",
                 "harmonization = 'GLD'",
                 "household_level = TRUE",
                 "table_version = 12",
@@ -44,9 +54,12 @@ def _normalize_sql(s: str) -> str:
                 "'None'",
             ],
         ),
+
+        # --- Case 3: false + zero ---
         (
             "GLD-Light", False, 0,
             [
+                "ingested = TRUE",
                 "harmonization = 'GLD-Light'",
                 "household_level = FALSE",
                 "table_version = 0",
@@ -284,8 +297,18 @@ def test_get_table_version_uses_describe_history_and_returns_max_version(monkeyp
 
     hist.select.return_value = sel
     sel.orderBy.return_value = ord_df
-
     spark.sql.return_value = hist
+
+    class FakeCol:
+        def __init__(self, name):
+            self.name = name
+        def desc(self):
+            return self
+
+    monkeypatch.setattr(
+        "helpers.ingestion_pipeline.col",
+        lambda name: FakeCol(name),
+    )
 
     v = get_table_version(spark, "schema.tbl")
 

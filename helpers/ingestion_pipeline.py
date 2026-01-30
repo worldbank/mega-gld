@@ -1,19 +1,36 @@
 import pyreadstat
 from pyspark.sql.functions import col
 
+def sql_literal(v):
+    if v is None:
+        return "NULL"
+    if isinstance(v, bool):
+        return "TRUE" if v else "FALSE"
+    if isinstance(v, (int, float)):
+        return str(v)
+    if isinstance(v, str):
+        v = (
+            v.replace("\x00", " ")
+             .replace("\r", " ")
+             .replace("\n", " ")
+             .strip()
+             .replace("'", "")
+        )
+        return f"'{v}'" 
+    raise TypeError(f"Unsupported type: {type(v)}")
+
 def update_metadata(spark, metadata_table, dta_path, tbl_name, harm_type, household_level, table_version):
-    harm_sql = "NULL" if harm_type is None else f"'{harm_type}'"
-    hh_sql = "NULL" if household_level is None else ("TRUE" if household_level else "FALSE")
-    tv_sql = "NULL" if table_version is None else str(int(table_version))
+    set_parts = [
+        "ingested = TRUE",
+        f"harmonization = {sql_literal(harm_type)}",
+        f"household_level = {sql_literal(household_level)}",
+        f"table_name = {sql_literal(tbl_name)}",
+        f"table_version = {sql_literal(table_version)}",
+    ]
 
     spark.sql(f"""
         UPDATE {metadata_table}
-        SET
-            ingested = TRUE,
-            harmonization = {harm_sql},
-            household_level = {hh_sql},
-            table_name = '{tbl_name}',
-            table_version = {tv_sql}
+        SET {", ".join(set_parts)}
         WHERE dta_path = '{dta_path}'
     """)
 
@@ -35,18 +52,12 @@ def apply_column_comments(spark, full_table_name, var_labels):
             if label is None:
                 continue
 
-            safe_label = (str(label)
-                .replace("\x00", " ")
-                .replace("\r", " ")
-                .replace("\n", " ")
-                .strip()
-                .replace("'", "")
-            )
+            safe_label = sql_literal(str(label))
 
             spark.sql(
                 f"ALTER TABLE {full_table_name} "
                 f"ALTER COLUMN `{col_name}` "
-                f"COMMENT '{safe_label}'"
+                f"COMMENT {safe_label}"
             )
 
         except Exception as e:
