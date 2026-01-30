@@ -16,18 +16,48 @@ def _normalize_sql(s: str) -> str:
     [
         (
             None, None, None,
-            ["harmonization = NULL", "household_level = NULL", "table_version = NULL"],
-            ["'None'", "TRUE", "FALSE"],
+            [
+                "harmonization = NULL",
+                "household_level = NULL",
+                "table_version = NULL",
+            ],
+            [
+                "'None'",  
+                "harmonization = 'None'",
+                "household_level = TRUE",
+                "household_level = FALSE",
+                "table_version = 'None'",
+            ],
         ),
         (
             "GLD", True, 12,
-            ["harmonization = 'GLD'", "household_level = TRUE", "table_version = 12"],
-            ["household_level = FALSE", "table_version = NULL"],
+            [
+                "harmonization = 'GLD'",
+                "household_level = TRUE",
+                "table_version = 12",
+            ],
+            [
+                "harmonization = NULL",
+                "household_level = NULL",
+                "household_level = FALSE",
+                "table_version = NULL",
+                "'None'",
+            ],
         ),
         (
             "GLD-Light", False, 0,
-            ["harmonization = 'GLD-Light'", "household_level = FALSE", "table_version = 0"],
-            ["household_level = TRUE"],
+            [
+                "harmonization = 'GLD-Light'",
+                "household_level = FALSE",
+                "table_version = 0",
+            ],
+            [
+                "harmonization = NULL",
+                "household_level = NULL",
+                "household_level = TRUE",
+                "table_version = NULL",
+                "'None'",
+            ],
         ),
     ],
 )
