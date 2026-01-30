@@ -1,8 +1,5 @@
-# Databricks notebook source
 import pyreadstat
 from pyspark.sql.functions import col
-
-# COMMAND ----------
 
 def update_metadata(spark, metadata_table, dta_path, tbl_name, harm_type, household_level, table_version):
     harm_sql = "NULL" if harm_type is None else f"'{harm_type}'"

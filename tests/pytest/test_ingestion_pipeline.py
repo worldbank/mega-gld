@@ -1,8 +1,5 @@
-# Databricks notebook source
-# MAGIC %pip install pytest
-# MAGIC %pip install pyreadstat
-
-# COMMAND ----------
+%pip install pytest
+%pip install pyreadstat
 
 import re
 from types import SimpleNamespace
@@ -11,11 +8,8 @@ from unittest.mock import MagicMock, call
 import pandas as pd
 import pytest
 
-# COMMAND ----------
+from helpers.ingestion_pipeline import *
 
-# MAGIC %run "../../helpers/ingestion_pipeline"
-
-# COMMAND ----------
 
 def _normalize_sql(s: str) -> str:
     return re.sub(r"\s+", " ", s.strip())
@@ -280,4 +274,3 @@ def test_table_exists_delegates_to_spark_catalog():
 
     assert table_exists(spark, "schema.tbl") is True
     spark.catalog.tableExists.assert_called_once_with("schema.tbl")
-
