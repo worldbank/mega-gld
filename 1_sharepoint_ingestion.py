@@ -1,3 +1,8 @@
+# Databricks notebook source
+# MAGIC %pip install pyreadstat
+
+# COMMAND ----------
+
 import os
 import gc
 import pandas as pd
@@ -5,6 +10,7 @@ from pyspark.sql import SparkSession
 
 from helpers.ingestion_pipeline import *
 
+# COMMAND ----------
 
 def in_databricks() -> bool:
     return ("DATABRICKS_RUNTIME_VERSION" in os.environ)
