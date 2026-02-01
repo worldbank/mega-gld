@@ -14,7 +14,7 @@ suppressPackageStartupMessages({
 
 # COMMAND ----------
 
-if (!exists("gh_list_dirs")) {
+if (!exists("fetch_countries_names")) {
   repo_root <- normalizePath(file.path("..", ".."), mustWork = TRUE)
   withr::local_dir(repo_root)
   source(file.path(repo_root, "helpers", "json_pipeline.r"))

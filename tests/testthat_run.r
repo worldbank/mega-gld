@@ -5,8 +5,11 @@
 
 if (!exists("is_databricks")) {
   library(testthat)
-  test_dir(file.path("tests", "testthat"))
-  stop()
+  results <- test_dir(file.path("tests", "testthat"))
+  if (any(as.data.frame(results)$failed > 0)) {
+    stop("Tests failed")
+  }
+  quit(save = "no", status = 0)
 }
 
 # COMMAND ----------
@@ -15,7 +18,7 @@ if (!exists("is_databricks")) {
 
 # COMMAND ----------
 
-# MAGIC %run ./testthat/test_2_integration_alt
+# MAGIC %run ./testthat/test_2_integration
 
 # COMMAND ----------
 
