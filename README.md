@@ -43,12 +43,17 @@ ___
 **Script 4b** [forthcoming. manages json publication of the stacked table]
 
 ## Tests
+
+### Local
 Run the full test suite from the repo root:
-```r
-Rscript tests/testthat.R
+```bash
+Rscript tests/testthat_run.r
 ```
 
 Run a single test file:
-```r
-R -e 'testthat::test_file("tests/testthat/test_do_file_parsing.R")'
+```bash
+R -e 'testthat::test_file("tests/testthat/test_do_file_parsing.r")'
 ```
+
+### Databricks
+Import the repository into a Databricks workspace, then run `tests/testthat_run` as a notebook. The notebook uses `%run` commands to execute each test file in sequence.
