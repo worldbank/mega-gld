@@ -44,7 +44,10 @@ make_mdl_json <- function(row, countries_names) {
   q_piece <- ifelse(q == "", "", paste0(" ", q))
 
   # --- other repeatables ---
-  A_version_padded <- sprintf("%02d", as.integer(row$A_version))
+  m_padded <- sprintf("%02d", as.integer(row$M_version))
+  a_padded <- sprintf("%02d", as.integer(row$A_version))
+  version_padded <- paste0("M", m_padded, " A", a_padded)
+  
   idno_val <- paste0("DDI_", row$filename, "_WB")
   survey_extended_val <- safe(row$survey_extended)
     if (survey_extended_val == "") {
@@ -91,7 +94,7 @@ make_mdl_json <- function(row, countries_names) {
       ),
       prod_date = prod_mmddyyyy,
       version_statement = list(
-        version = paste0("A", A_version_padded),
+        version = version_padded,
         version_date = prod_mmddyyyy,
         version_resp = GLD_TEAM_NAME,
         version_notes = safe(row$version_label)
@@ -156,7 +159,7 @@ make_mdl_json <- function(row, countries_names) {
       ),
 
       version_statement = list(
-        version = paste0("Version ", row$A_version,
+        version = paste0("Version ",version_padded,
                          ": Harmonized, anonymized dataset for, ", row$classification, " distribution."),
         version_date = prod_ym,
         version_notes = safe(row$version_label)
