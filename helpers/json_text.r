@@ -71,3 +71,7 @@ DISCLAIMER <- paste(
   "and the relevant funding agency bear no responsibility for use of the data or for interpretations or inferences based upon such uses.",
   sep = " "
 )
+
+#Text for harmonized tables
+GEOG_COVERAGE_HARMONIZED = "International"
+PRODUCERS_NAME_HARMONIZED = "National Statistical Offices of the featured countries"

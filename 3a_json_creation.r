@@ -41,6 +41,6 @@ if (is_databricks()) {
     gh_html_base = GH_HTML_BASE
   )
 
-  merged_df <- compute_json_inputs(metadata, survey, valid_pairs_df)
+  merged_df <- compute_json_inputs(metadata, survey = survey, valid_pairs_df = valid_pairs_df)
   write_json_files(merged_df, countries_names, JSON_DIR)
 }

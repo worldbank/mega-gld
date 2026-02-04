@@ -34,8 +34,16 @@ if (!exists("is_databricks")) {
 
 # COMMAND ----------
 
+# MAGIC %run ./testthat/test_harmonized_metadata_parsing
+
+# COMMAND ----------
+
 # MAGIC %run ./testthat/test_json_builder
 
 # COMMAND ----------
 
 # MAGIC %run ./testthat/test_json_pipeline
+
+# COMMAND ----------
+
+# MAGIC %run ./testthat/test_txt_pipeline

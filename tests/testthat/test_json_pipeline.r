@@ -101,12 +101,12 @@ test_that("fetch_survey_metadata respects custom filename", {
 
 
 
-test_that("compute_json_inputs keeps only unpublished rows with missing data_classification", {
+test_that("compute_json_inputs keeps only unpublished rows with filled classification", {
   metadata <- tibble::tibble(
     country = c("USA", "USA", "KEN", "KEN", "FRA"),
     survey  = c("LFS-foo", "LFS-bar", "DHS-2020", "DHS-2020", "EU-SILC"),
     published = c(FALSE, FALSE, FALSE, TRUE, FALSE),
-    data_classification = c(NA, "Official Use", "   ", NA, "")
+    classification = c(NA, "Official Use", "   ", NA, "")
   )
 
   survey <- tibble::tibble(
@@ -121,16 +121,17 @@ test_that("compute_json_inputs keeps only unpublished rows with missing data_cla
     ok = TRUE
   )
 
-  out <- compute_json_inputs(metadata, survey, valid_pairs_df)
+  out <- compute_json_inputs(metadata, survey = survey, valid_pairs_df = valid_pairs_df)
 
   # Kept rows should be: USA/LFS-foo (NA), KEN/DHS-2020 ("   "), FRA/EU-SILC ("")
   expect_equal(nrow(out), 3)
 
   expect_true(all(out$published == FALSE))
-  expect_true(all(is.na(out$data_classification) | trimws(out$data_classification) == ""))
+  expect_true(all(!is.na(out$classification)))
+  expect_true(all(trimws(out$classification) != ""))
 
   # Ensure we did NOT keep any rows with a non-empty classification
-  expect_false(any(trimws(out$data_classification) %in% c("Official Use", "Confidential")))
+  expect_false(any(trimws(out$classification) %in% c("Official Use", "Confidential")))
 
   # Joins happened
   expect_true("survey_extended" %in% names(out))
@@ -142,12 +143,12 @@ test_that("compute_json_inputs keeps only unpublished rows with missing data_cla
 
 
 
-test_that("compute_json_inputs drops unpublished rows when data_classification is non-missing", {
+test_that("compute_json_inputs drops unpublished rows when classification is non-missing", {
   metadata <- tibble::tibble(
     country = c("USA", "USA"),
     survey  = c("LFS-foo", "LFS-bar"),
     published = c(FALSE, FALSE),
-    data_classification = c("Official Use", "Confidential")
+    classification = c("Official Use", "Confidential")
   )
 
   survey <- tibble::tibble(
@@ -162,7 +163,7 @@ test_that("compute_json_inputs drops unpublished rows when data_classification i
     ok = TRUE
   )
 
-  out <- compute_json_inputs(metadata, survey, valid_pairs_df)
+  out <- compute_json_inputs(metadata, survey = survey, valid_pairs_df = valid_pairs_df)
   expect_equal(nrow(out), 0)
 })
 
@@ -171,14 +172,50 @@ test_that("compute_json_inputs sets survey_clean to text before first hyphen", {
     country = "USA",
     survey = "ABC-DEF-GHI",
     published = FALSE,
-    data_classification = NA_character_
+    classification = NA_character_
   )
 
   survey <- tibble::tibble(country = "USA", survey = "ABC-DEF-GHI")
   valid_pairs_df <- tibble::tibble(country = "USA", survey_clean = "ABC")
 
-  out <- compute_json_inputs(metadata, survey, valid_pairs_df)
+  out <- compute_json_inputs(metadata, survey = survey, valid_pairs_df = valid_pairs_df)
   expect_equal(out$survey_clean, "ABC")
+})
+
+
+test_that("compute_json_inputs works without survey and valid_pairs_df", {
+  metadata <- tibble::tibble(
+    country = c("USA", "KEN"),
+    survey  = c("LFS-foo", "DHS-2020"),
+    published = c(FALSE, FALSE),
+    classification = c(NA, "")
+  )
+
+  out <- compute_json_inputs(metadata)
+
+  expect_equal(nrow(out), 2)
+  expect_true("survey_clean" %in% names(out))
+  expect_equal(out$survey_clean, c("LFS", "DHS"))
+})
+
+test_that("compute_json_inputs works with valid_pairs_df only", {
+  metadata <- tibble::tibble(
+    country = c("USA", "KEN"),
+    survey  = c("LFS-foo", "DHS-2020"),
+    published = c(FALSE, FALSE),
+    classification = c(NA, "")
+  )
+
+  valid_pairs_df <- tibble::tibble(
+    country = c("USA", "KEN"),
+    survey_clean = c("LFS", "DHS"),
+    ok = TRUE
+  )
+
+  out <- compute_json_inputs(metadata, valid_pairs_df = valid_pairs_df)
+
+  expect_true("ok" %in% names(out))
+  expect_equal(out$ok, c(TRUE, TRUE))
 })
 
 

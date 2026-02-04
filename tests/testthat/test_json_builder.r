@@ -101,5 +101,29 @@ test_that("GH link is appended only when gh_url exists", {
 })
 
 
+test_that("version uses M/A when M_version and A_version exist", {
+  countries <- tibble(code = "USA", name = "United States")
 
+  row <- make_minimal_row(list(
+    M_version = 2,
+    A_version = 5
+  ))
+
+  js <- make_mdl_json(row, countries)
+
+  expect_equal(js$doc_desc$version_statement$version, "M02A05")
+})
+
+
+test_that("version uses V when V_version column exists", {
+  countries <- tibble(code = "USA", name = "United States")
+
+  row <- make_minimal_row() %>%
+    dplyr::select(-M_version, -A_version) %>%   
+    dplyr::mutate(V_version = 4) 
+
+  js <- make_mdl_json(row, countries)
+
+  expect_equal(js$doc_desc$version_statement$version, "V04")
+})
 

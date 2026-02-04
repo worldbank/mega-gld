@@ -25,7 +25,7 @@ make_mdl_json <- function(row, countries_names) {
   # ---- formatting helpers ----
   safe <- function(x) {
     x <- as.character(x)
-    ifelse(is.na(x) | x == "", "", x)
+    ifelse(is.na(x) | x == "" | x == "NA", "", x)
   }
 
   date_mmddyyyy <- function(x) format(as.Date(x), "%m/%d/%Y")
@@ -36,24 +36,32 @@ make_mdl_json <- function(row, countries_names) {
   # ---- dates ----
   prod_date     <- Sys.Date()
   prod_mmddyyyy <- date_mmddyyyy(prod_date)
-  prod_y        <- date_year(prod_date)
   prod_ym       <- date_ym(prod_date)
+
+  years <- as.character(row$year)
+  start <- sub("-.+$", "", years)
+  end   <- sub("^.+-", "", years)
 
   # ---- quarter logic ----
   q <- safe(row$quarter)
   q_piece <- ifelse(q == "", "", paste0(" ", q))
 
   # --- other repeatables ---
-  m_padded <- sprintf("%02d", as.integer(row$M_version))
-  a_padded <- sprintf("%02d", as.integer(row$A_version))
-  version_padded <- paste0("M", m_padded, " A", a_padded)
+  # helpers for wide-long table create V_version column but not M_version and A-version columns which are in _ingestion_metadata
+  if ("M_version" %in% names(row) && "A_version" %in% names(row)) {
+    m_padded <- paste0("M", sprintf("%02d", as.integer(row$M_version)))
+    a_padded <- paste0("A", sprintf("%02d", as.integer(row$A_version)))
+    version_padded <- paste0(m_padded, a_padded)
+  } else if ("V_version" %in% names(row)) {
+    version_padded <- paste0("V", sprintf("%02d", as.integer(row$V_version)))
+  }
   
   idno_val <- paste0("DDI_", row$filename, "_WB")
   survey_extended_val <- safe(row$survey_extended)
     if (survey_extended_val == "") {
-      survey_extended_val <- row$survey_clean
+      survey_extended_val <- safe(row$survey_clean)
     }
-  long_title <- paste0(survey_extended_val, q_piece, " ", row$year, ", ", GLD_NAME_LONG)
+  long_title <- trimws(paste0(survey_extended_val, q_piece, " ", row$year, ", ", GLD_NAME_LONG))
   
 
   # ---- GH link ----
@@ -65,7 +73,23 @@ make_mdl_json <- function(row, countries_names) {
   )
 
   # ---- country lookup ----
-  nation_name <- countries_names$name[match(row$country, countries_names$code)]
+  country_codes <- row$country
+  
+  if (is.list(country_codes)) {
+    country_codes <- unlist(country_codes, use.names = FALSE)
+  }
+
+  country_codes <- as.character(country_codes)
+  country_codes <- country_codes[!is.na(country_codes) & nzchar(trimws(country_codes))]
+
+  nation_names <- countries_names$name[match(country_codes, countries_names$code)]
+
+  nation_list <- lapply(seq_along(country_codes), function(i) {
+    list(
+      name = safe(nation_names[i]),
+      abbreviation = country_codes[i]
+    )
+  })
 
   # --- populate the json ---
   json <- list(
@@ -105,7 +129,7 @@ make_mdl_json <- function(row, countries_names) {
       title_statement = list(
         idno = idno_val,
         title = long_title,
-        alternate_title = paste0(row$survey_clean, " GLD ", row$year)
+        alternate_title = trimws(paste0(safe(row$survey_clean), " GLD ", row$year))
       ),
       authoring_entity = list(
         list(
@@ -121,7 +145,12 @@ make_mdl_json <- function(row, countries_names) {
             role = ROLE_PRODUCERS
           ),
           list(
-            name = if (!is.null(row$producers_name) && !is.na(row$producers_name)&& nzchar(trimws(row$producers_name))) {row$producers_name } else { paste("National Statistical Offices of", nation_name)},
+            name = if (!is.null(row$producers_name) && !is.na(row$producers_name)&& nzchar(trimws(row$producers_name))) {row$producers_name 
+            } else if (length(nation_names) == 1) {
+              paste("National Statistical Offices of", nation_names)
+            } else {
+              "National Statistical Offices"
+            },
             affiliation = "",
             role = ROLE_SURVEY_PROD
           )
@@ -177,20 +206,15 @@ make_mdl_json <- function(row, countries_names) {
           abstract_tail
         ),
 
-        coll_dates = list(
+        coll_dates <- list(
           list(
-            start = prod_y,
-            end   = prod_y,
+            start = start,
+            end   = end,
             cycle = ""
           )
         ),
 
-        nation = list(
-          list(
-            name = safe(nation_name),
-            abbreviation = row$country
-          )
-        ),
+        nation = nation_list,
 
         geog_coverage = if (!is.null(row$geog_coverage) && !is.na(row$geog_coverage) && nzchar(trimws(row$geog_coverage))) {row$geog_coverage} else {"National"},
         analysis_unit = if (isTRUE(row$household_level)) {
