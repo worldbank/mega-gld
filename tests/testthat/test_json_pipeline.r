@@ -124,31 +124,31 @@ test_that("compute_json_inputs keeps only unpublished rows with filled classific
   out <- compute_json_inputs(metadata, survey = survey, valid_pairs_df = valid_pairs_df)
 
   # Kept rows should be: USA/LFS-foo (NA), KEN/DHS-2020 ("   "), FRA/EU-SILC ("")
-  expect_equal(nrow(out), 3)
+  expect_equal(nrow(out), 1)
 
   expect_true(all(out$published == FALSE))
   expect_true(all(!is.na(out$classification)))
   expect_true(all(trimws(out$classification) != ""))
 
   # Ensure we did NOT keep any rows with a non-empty classification
-  expect_false(any(trimws(out$classification) %in% c("Official Use", "Confidential")))
+  expect_true(any(trimws(out$classification) %in% c("Official Use", "Confidential")))
 
   # Joins happened
   expect_true("survey_extended" %in% names(out))
   expect_true("ok" %in% names(out))
 
   # survey_clean computed
-  expect_equal(out$survey_clean, c("LFS", "DHS", "EU"))
+  expect_equal(out$survey_clean, "LFS")
 })
 
 
 
-test_that("compute_json_inputs drops unpublished rows when classification is non-missing", {
+test_that("compute_json_inputs drops unpublished rows when classification is missing", {
   metadata <- tibble::tibble(
     country = c("USA", "USA"),
     survey  = c("LFS-foo", "LFS-bar"),
     published = c(FALSE, FALSE),
-    classification = c("Official Use", "Confidential")
+    classification = c("Official Use", "   ")
   )
 
   survey <- tibble::tibble(
@@ -164,7 +164,7 @@ test_that("compute_json_inputs drops unpublished rows when classification is non
   )
 
   out <- compute_json_inputs(metadata, survey = survey, valid_pairs_df = valid_pairs_df)
-  expect_equal(nrow(out), 0)
+  expect_equal(nrow(out), 1)
 })
 
 test_that("compute_json_inputs sets survey_clean to text before first hyphen", {
@@ -172,7 +172,7 @@ test_that("compute_json_inputs sets survey_clean to text before first hyphen", {
     country = "USA",
     survey = "ABC-DEF-GHI",
     published = FALSE,
-    classification = NA_character_
+    classification = "Confidential"
   )
 
   survey <- tibble::tibble(country = "USA", survey = "ABC-DEF-GHI")
@@ -188,7 +188,7 @@ test_that("compute_json_inputs works without survey and valid_pairs_df", {
     country = c("USA", "KEN"),
     survey  = c("LFS-foo", "DHS-2020"),
     published = c(FALSE, FALSE),
-    classification = c(NA, "")
+    classification = c("Official Use", "Confidential")
   )
 
   out <- compute_json_inputs(metadata)
@@ -203,7 +203,7 @@ test_that("compute_json_inputs works with valid_pairs_df only", {
     country = c("USA", "KEN"),
     survey  = c("LFS-foo", "DHS-2020"),
     published = c(FALSE, FALSE),
-    classification = c(NA, "")
+    classification = c("Confidential", "Confidential")
   )
 
   valid_pairs_df <- tibble::tibble(
