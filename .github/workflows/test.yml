@@ -1,0 +1,40 @@
+name: Run Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libcurl4-openssl-dev
+
+      - name: Install R packages
+        run: |
+          install.packages(c("testthat", "tibble", "dplyr", "purrr", "readr", "readxl", "haven", "zip", "stringr", "withr", "httr", "jsonlite"))
+        shell: Rscript {0}
+
+      - name: Run tests
+        run: |
+          library(testthat)
+          test_files <- list.files("tests/testthat", pattern = "^test.*\\.[rR]$", full.names = TRUE)
+          test_files <- test_files[!grepl("test_api\\.[rR]$", test_files, ignore.case = TRUE)]
+          for (f in test_files) {
+            message("Running: ", f)
+            test_file(f, stop_on_failure = TRUE)
+          }
+        shell: Rscript {0}
