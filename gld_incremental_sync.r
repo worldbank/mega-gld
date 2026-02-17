@@ -37,6 +37,12 @@ expected_cols <- names(schema)
 metadata <- tbl(sc, METADATA_TABLE)
 change_keys <- identify_changes(metadata)
 
+# Validation: Check if any changes were detected
+num_changes <- validate_change_detection(change_keys)
+if (num_changes == 0) {
+  quit(save = "no")
+}
+
 # ============================================================================
 # Get or create existing harmonized tables and remove records to be updated
 # ============================================================================
@@ -84,6 +90,15 @@ harmonized_ouo_cleaned <- harmonized_ouo %>%
     change_keys %>% select(countrycode, year, survname),
     by = c("countrycode", "year", "survname")
   )
+
+# ============================================================================
+# Validation: Verify records were removed correctly
+# ============================================================================
+
+validate_record_removal(harmonized_all, harmonized_all_cleaned, change_keys, "HARMONIZED_ALL")
+validate_record_removal(harmonized_ouo, harmonized_ouo_cleaned, change_keys, "HARMONIZED_OFFICIAL")
+
+message("✓ Verified no overlapping records remain in cleaned data")
 
 # ============================================================================
 # Process tables that need updating
@@ -139,6 +154,12 @@ for (i in seq_along(update_list)) {
   }
 }
 
+# ============================================================================
+# Validation: Check that expected tables were processed
+# ============================================================================
+
+validate_processing_count(length(all_dfs), update_list, TO_REMOVE)
+
 # Union all tables and write results
 if (length(all_dfs) > 0) {
   # Union all new dataframes
@@ -166,5 +187,11 @@ metadata_final <- update_metadata_versions(metadata, change_keys)
 
 # Write updated metadata back to table
 spark_write_table(metadata_final, METADATA_TABLE, mode = "overwrite")
+
+# ============================================================================
+# Validation: Verify metadata sync worked correctly
+# ============================================================================
+
+validate_metadata_sync(METADATA_TABLE, change_keys, sc)
 
 message("Stacking process completed successfully!")

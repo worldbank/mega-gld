@@ -178,3 +178,121 @@ update_metadata_versions <- function(metadata_df, change_keys_df) {
   
   return(metadata_final)
 }
+
+
+#' Validate that changes were detected
+#'
+#' @param change_keys_df DataFrame with detected changes
+#' @return Number of changes detected
+validate_change_detection <- function(change_keys_df) {
+  num_changes <- change_keys_df %>% count() %>% collect() %>% pull(n)
+  
+  message(sprintf("Found %d table(s) that need updating", num_changes))
+  
+  if (num_changes == 0) {
+    message("All tables are up-to-date. No stacking needed.")
+  }
+  
+  return(num_changes)
+}
+
+
+#' Validate that records were removed correctly via anti-join
+#'
+#' @param original_df Original DataFrame before cleaning
+#' @param cleaned_df DataFrame after anti-join
+#' @param change_keys_df DataFrame with keys to remove
+#' @param table_name Name of table for logging
+#' @return Number of records removed
+validate_record_removal <- function(original_df, cleaned_df, change_keys_df, table_name = "table") {
+  # Count records before and after
+  original_count <- original_df %>% count() %>% collect() %>% pull(n)
+  cleaned_count <- cleaned_df %>% count() %>% collect() %>% pull(n)
+  removed_count <- original_count - cleaned_count
+  
+  message(sprintf("✓ Removed %d record(s) from %s", removed_count, table_name))
+  
+  # Verify no overlapping records remain
+  duplicate_check <- cleaned_df %>%
+    inner_join(
+      change_keys_df %>% select(countrycode, year, survname),
+      by = c("countrycode", "year", "survname")
+    ) %>%
+    count() %>%
+    collect() %>%
+    pull(n)
+  
+  if (duplicate_check > 0) {
+    stop(sprintf(
+      "ERROR: Found %d record(s) in %s that should have been removed!",
+      duplicate_check,
+      table_name
+    ))
+  }
+  
+  return(removed_count)
+}
+
+
+#' Validate that expected number of tables were processed
+#'
+#' @param processed_count Actual number of tables processed
+#' @param update_list List of updates
+#' @param excluded_tables Vector of table names to exclude
+#' @return TRUE if validation passes
+validate_processing_count <- function(processed_count, update_list, excluded_tables = c()) {
+  expected_count <- length(update_list)
+  skipped_count <- sum(sapply(update_list, function(x) x$table_name) %in% excluded_tables)
+  expected_processed <- expected_count - skipped_count
+  
+  if (processed_count != expected_processed) {
+    message(sprintf(
+      "WARNING: Expected to process %d tables, but processed %d",
+      expected_processed,
+      processed_count
+    ))
+    return(FALSE)
+  } else {
+    message(sprintf("✓ Processed %d table(s) as expected", processed_count))
+    return(TRUE)
+  }
+}
+
+
+#' Validate that metadata was synchronized correctly
+#'
+#' @param metadata_table_name Full table name to read metadata from
+#' @param change_keys_df DataFrame with expected changes
+#' @param sc Spark connection
+#' @return TRUE if validation passes, stops with error otherwise
+validate_metadata_sync <- function(metadata_table_name, change_keys_df, sc) {
+  # Read back the updated metadata
+  metadata_check <- tbl(sc, metadata_table_name)
+  
+  # Join with change_keys to verify updates
+  validation <- metadata_check %>%
+    inner_join(
+      change_keys_df %>% select(countrycode, year, survname, table_version),
+      by = c("country" = "countrycode", "year", "survey" = "survname")
+    ) %>%
+    collect()
+  
+  # Check that all stacked versions match the table version
+  sync_errors <- validation %>%
+    filter(
+      stacked_all_table_version != table_version | 
+      stacked_ouo_table_version != table_version
+    )
+  
+  if (nrow(sync_errors) > 0) {
+    message("ERROR: Metadata sync validation failed!")
+    message("The following tables have mismatched versions:")
+    print(sync_errors %>% select(country, year, survey, table_version, 
+                                  stacked_all_table_version, stacked_ouo_table_version))
+    stop("Metadata synchronization failed. Please investigate.")
+  }
+  
+  message(sprintf("✓ Metadata sync validated: %d table(s) updated successfully", nrow(validation)))
+  
+  return(TRUE)
+}
