@@ -94,7 +94,6 @@ build_update_list <- function(change_keys_df) {
 #' @param survey_val Survey name value to add
 #' @return List with two elements: aligned_df (DataFrame) and extra_cols (character vector)
 align_dataframe_to_schema <- function(src_df, schema, country_val, survey_val) {
-  source("helpers/stacking_schema.r")
   
   # Extract expected columns from schema
   expected_cols <- names(schema)
