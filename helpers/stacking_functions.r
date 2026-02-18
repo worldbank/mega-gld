@@ -9,14 +9,13 @@ library(sparklyr)
 #' @param metadata_df DataFrame containing ingestion metadata
 #' @return DataFrame with tables that have newer versions
 identify_changes <- function(metadata_df) {
-  # Treat null as -1 (not yet in harmonized table)
+  # Detect tables where either stacked version is NULL (not yet in harmonized table)
+  # AND table_version is 1 (only process first version)
   change_keys <- metadata_df %>%
-    mutate(
-      stacked_all_val = coalesce(stacked_all_table_version, -1),
-      stacked_ouo_val = coalesce(stacked_ouo_table_version, -1),
-      max_stacked_version = greatest(stacked_all_val, stacked_ouo_val)
+    filter(
+      (is.na(stacked_all_table_version) | is.na(stacked_ouo_table_version)) &
+      stacking == 1
     ) %>%
-    filter(table_version > max_stacked_version) %>%
     select(
       table_name,
       classification,
@@ -153,27 +152,34 @@ align_dataframe_to_schema <- function(src_df, schema, country_val, survey_val) {
 #' @param change_keys_df DataFrame with tables that need updates (includes table_version)
 #' @return Updated metadata DataFrame
 update_metadata_versions <- function(metadata_df, change_keys_df) {
-  # Extract updates from change_keys
+  # Extract updates from change_keys with a marker
   updates_df <- change_keys_df %>%
     select(
       country = countrycode,
       year,
-      survey = survname,
-      new_version = table_version
+      survey = survname
     ) %>%
-    mutate(new_version = as.integer(new_version))
+    mutate(to_update = 1L)
   
   # Join with original metadata
   metadata_updated_df <- metadata_df %>%
     left_join(updates_df, by = c("country", "year", "survey"))
   
-  # Update version columns using coalesce
+  # Increment version columns for matched rows (treat NULL as 0)
   metadata_final <- metadata_updated_df %>%
     mutate(
-      stacked_all_table_version = coalesce(new_version, stacked_all_table_version),
-      stacked_ouo_table_version = coalesce(new_version, stacked_ouo_table_version)
+      stacked_all_table_version = if_else(
+        !is.na(to_update),
+        coalesce(stacked_all_table_version, 0L) + 1L,
+        stacked_all_table_version
+      ),
+      stacked_ouo_table_version = if_else(
+        !is.na(to_update),
+        coalesce(stacked_ouo_table_version, 0L) + 1L,
+        stacked_ouo_table_version
+      )
     ) %>%
-    select(-new_version)
+    select(-to_update)
   
   return(metadata_final)
 }
