@@ -40,12 +40,12 @@ change_keys <- identify_changes(metadata)
 # Validation: Check if any changes were detected
 num_changes <- validate_change_detection(change_keys)
 if (num_changes == 0) {
-  message("No changes needed: Stopping execution")
-  stop("Execution halted: No changes to process.")
+  stop("No changes detected in metadata; execution halted: no updates to process.")
 }
 
 # ============================================================================
 # Get or create existing harmonized tables and remove records to be updated
+# ============================================================================
 # ============================================================================
 
 # Build the column definitions for table creation if needed
