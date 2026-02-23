@@ -148,24 +148,3 @@ else:
                 if obj in locals():
                     del locals()[obj]
             gc.collect()
-
-
-        # --- update stacking for all ingested tables ---
-
-        metadata = spark.read.table(metadata_table).toPandas()
-        metadata = metadata[metadata["ingested"] == True].copy()
-
-        metadata = compute_stacking(metadata)
-
-        updates = metadata[["dta_path", "stacking"]].drop_duplicates()
-
-        spark.createDataFrame(updates).createOrReplaceTempView("stacking_updates")
-
-        spark.sql(f"""
-        MERGE INTO {metadata_table} t
-        USING stacking_updates s
-        ON t.dta_path = s.dta_path
-        WHEN MATCHED THEN UPDATE SET t.stacking = s.stacking
-        """)
-
-        print("Done: stacking flag updated.")
