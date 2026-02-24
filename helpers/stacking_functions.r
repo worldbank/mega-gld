@@ -13,8 +13,13 @@ identify_changes <- function(metadata_df) {
   # AND table_version is 1 (only process first version)
   change_keys <- metadata_df %>%
     filter(
-      (is.na(stacked_all_table_version) | is.na(stacked_ouo_table_version)) &
-      stacking == 1
+      stacking == 1 & (
+        # Case 1: Needs to go into the ALL table
+        is.na(stacked_all_table_version) | 
+        
+        # Case 2: It's an "Official Use" survey and it's missing from the OUO table
+        (classification == !!OFFICIAL_CLASS & is.na(stacked_ouo_table_version))
+      )
     ) %>%
     select(
       table_name,
@@ -124,7 +129,6 @@ align_dataframe_to_schema <- function(src_df, schema, country_val, survey_val) {
   dynamic_cols <- setdiff(dynamic_cols, expected_cols)
   
   # Add dynamic columns to mutate expressions
-  mutate_exprs <- list()
   for (dc in dynamic_cols) {
     mutate_exprs[[dc]] <- expr(as.character(!!sym(dc)))
   }
@@ -151,9 +155,15 @@ align_dataframe_to_schema <- function(src_df, schema, country_val, survey_val) {
 #'
 #' @param metadata_df Original metadata DataFrame
 #' @param change_keys_df DataFrame with tables that need updates (includes table_version)
+#' @param harmonized_all_table Full table name for harmonized ALL table
+#' @param harmonized_ouo_table Full table name for harmonized OUO table
+#' @param sc Spark connection
 #' @return Updated metadata DataFrame
-update_metadata_versions <- function(metadata_df, change_keys_df) {
-  # Extract updates from change_keys with a marker
+update_metadata_versions <- function(metadata_df, change_keys_df, 
+                                    harmonized_all_table, harmonized_ouo_table, sc) {
+  new_all_version <- as.integer(get_delta_table_version(harmonized_all_table, sc))
+  new_ouo_version <- as.integer(get_delta_table_version(harmonized_ouo_table, sc))
+  
   updates_df <- change_keys_df %>%
     select(
       country = countrycode,
@@ -162,27 +172,46 @@ update_metadata_versions <- function(metadata_df, change_keys_df) {
     ) %>%
     mutate(to_update = 1L)
   
-  # Join with original metadata
-  metadata_updated_df <- metadata_df %>%
-    left_join(updates_df, by = c("country", "year", "survey"))
-  
-  # Increment version columns for matched rows (treat NULL as 0)
-  metadata_final <- metadata_updated_df %>%
+  metadata_final <- metadata_df %>%
+    left_join(updates_df, by = c("country", "year", "survey")) %>%
     mutate(
-      stacked_all_table_version = if_else(
+      stacked_all_table_version = as.integer(if_else(
         !is.na(to_update),
-        coalesce(stacked_all_table_version, 0L) + 1L,
-        stacked_all_table_version
-      ),
-      stacked_ouo_table_version = if_else(
-        !is.na(to_update),
-        coalesce(stacked_ouo_table_version, 0L) + 1L,
-        stacked_ouo_table_version
-      )
+        new_all_version,
+        as.integer(stacked_all_table_version)
+      )),
+      stacked_ouo_table_version = as.integer(if_else(
+        (!is.na(to_update) & classification == "Official Use"),
+        new_ouo_version,
+        as.integer(stacked_ouo_table_version)
+      ))
     ) %>%
     select(-to_update)
   
   return(metadata_final)
+}
+
+
+#' Get the latest version number of a Delta table
+#'
+#' @param table_name Full table name (e.g., "catalog.schema.table")
+#' @param sc Spark connection
+#' @return Integer representing the latest version number
+get_delta_table_version <- function(table_name, sc) {
+  # Split the name by the dots and quote each part individually
+  parts <- unlist(strsplit(table_name, "\\."))
+  quoted_parts <- paste0("`", parts, "`", collapse = ".")
+  
+  history_query <- sprintf("DESCRIBE HISTORY %s", quoted_parts)
+  
+  # Execute
+  history <- DBI::dbGetQuery(sc, history_query)
+  
+  if (nrow(history) == 0) {
+    stop(sprintf("No history found for table %s", table_name))
+  }
+  
+  return(max(history$version))
 }
 
 
@@ -196,11 +225,26 @@ validate_change_detection <- function(change_keys_df) {
   message(sprintf("Found %d table(s) that need updating", num_changes))
   
   if (num_changes == 0) {
-    message("All tables are up-to-date. No stacking needed.")
+    stop("All tables are up-to-date. No stacking needed.")
   }
+
+    duplicate_check <- change_keys_df %>%
+    group_by(countrycode, year, survname) %>%
+    count() %>%
+    filter(n > 1) %>%
+    collect()
   
-  return(num_changes)
-}
+    if (nrow(duplicate_check) > 0) {
+      message("ERROR: Found duplicate keys in change_keys!")
+      message("The following country/year/survname combinations have multiple rows:")
+      print(duplicate_check)
+      stop("Duplicate keys detected. Each country/year/survname should appear only once.")
+    }
+    
+    message("✓ Validated: All keys are unique (one row per country/year/survname)")
+    return(TRUE)
+  }
+
 
 
 #' Validate that records were removed correctly via anti-join
@@ -244,12 +288,9 @@ validate_record_removal <- function(original_df, cleaned_df, change_keys_df, tab
 #'
 #' @param processed_count Actual number of tables processed
 #' @param update_list List of updates
-#' @param excluded_tables Vector of table names to exclude
 #' @return TRUE if validation passes
-validate_processing_count <- function(processed_count, update_list, excluded_tables = c()) {
-  expected_count <- length(update_list)
-  skipped_count <- sum(sapply(update_list, function(x) x$table_name) %in% excluded_tables)
-  expected_processed <- expected_count - skipped_count
+validate_processing_count <- function(processed_count, update_list) {
+  expected_processed <- length(update_list)
   
   if (processed_count != expected_processed) {
     message(sprintf(
@@ -269,15 +310,22 @@ validate_processing_count <- function(processed_count, update_list, excluded_tab
 #'
 #' @param metadata_table_name Full table name to read metadata from
 #' @param change_keys_df DataFrame with expected changes
+#' @param harmonized_all_table Full table name for harmonized ALL table
+#' @param harmonized_ouo_table Full table name for harmonized OUO table
 #' @param sc Spark connection
 #' @return TRUE if validation passes, stops with error otherwise
-validate_metadata_sync <- function(metadata_table_name, change_keys_df, sc) {
+validate_metadata_sync <- function(metadata_table_name, change_keys_df, 
+                                  harmonized_all_table, harmonized_ouo_table, sc) {
+  # Get the actual Delta table versions
+  all_current_version <- get_delta_table_version(harmonized_all_table, sc)
+  ouo_current_version <- get_delta_table_version(harmonized_ouo_table, sc)
+  
   # Read back the updated metadata
   metadata_check <- tbl(sc, metadata_table_name)
   
   # Collect change_keys first to ensure columns are accessible
   change_keys_collected <- change_keys_df %>%
-    select(countrycode, year, survname, table_version) %>%
+    select(countrycode, year, survname) %>%
     collect()
   
   # Join with metadata to verify updates
@@ -290,22 +338,24 @@ validate_metadata_sync <- function(metadata_table_name, change_keys_df, sc) {
       by = c("country" = "countrycode", "year" = "year", "survey" = "survname")
     )
   
-  # Check that all stacked versions match the table version
+  # Check that all stacked versions match the actual Delta table versions
   sync_errors <- validation %>%
     filter(
-      stacked_all_table_version != table_version | 
-      stacked_ouo_table_version != table_version
+      stacked_all_table_version != all_current_version | 
+      stacked_ouo_table_version != ouo_current_version
     )
   
   if (nrow(sync_errors) > 0) {
     message("ERROR: Metadata sync validation failed!")
+    message(sprintf("Expected versions - ALL: %d, OUO: %d", all_current_version, ouo_current_version))
     message("The following tables have mismatched versions:")
-    print(sync_errors %>% select(country, year, survey, table_version, 
+    print(sync_errors %>% select(country, year, survey, 
                                   stacked_all_table_version, stacked_ouo_table_version))
     stop("Metadata synchronization failed. Please investigate.")
   }
   
   message(sprintf("✓ Metadata sync validated: %d table(s) updated successfully", nrow(validation)))
+  message(sprintf("✓ Actual Delta versions - ALL: %d, OUO: %d", all_current_version, ouo_current_version))
   
   return(TRUE)
 }

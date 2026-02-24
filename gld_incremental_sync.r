@@ -5,6 +5,7 @@ library(dplyr)
 library(DBI)
 
 # Source helper functions
+
 source("helpers/stacking_schema.r")
 source("helpers/stacking_functions.r")
 
@@ -12,19 +13,15 @@ source("helpers/stacking_functions.r")
 sc <- spark_connect(method = "databricks")
 
 # Configuration
-TABLE_QUALIFIER <- "prd_csc_mega.sgld48"
-OFFICIAL_CLASS <- "Official Use"
-
-# TODO: add this to the metadata table as a flag
-TO_REMOVE <- c(
-  "MEX_2023_ENOE_Panel_V01_M_V01_A_GLD_ALL",
-  "IND_2022_PLFS_Urban_Panel_V01_M_V01_A_GLD_ALL"
-)
+# Classification tagging
+OFFICIAL_CLASS     <- "Official Use"
+CONFIDENTIAL_CLASS <- "Confidential"
+TARGET_SCHEMA  <- "prd_csc_mega.sgld48"
+METADATA_TABLE <- paste0(TARGET_SCHEMA, ".test_ingestion_metadata")
 
 # Table names
-METADATA_TABLE <- paste0(TABLE_QUALIFIER, "._ingestion_metadata")
-HARMONIZED_CONFIDENTIAL <- paste0(TABLE_QUALIFIER, ".GLD_HARMONIZED_ALL")
-HARMONIZED_OFFICIAL <- paste0(TABLE_QUALIFIER, ".GLD_HARMONIZED_OUO")
+HARMONIZED_ALL <- paste0(TARGET_SCHEMA, ".GLD_HARMONIZED_ALL_TEST")
+HARMONIZED_OFFICIAL <- paste0(TARGET_SCHEMA, ".GLD_HARMONIZED_OUO_TEST")
 
 # Get schema
 schema <- get_gld_schema()
@@ -55,16 +52,16 @@ columns_sql <- paste(
   collapse = ", "
 )
 
-# Check and create HARMONIZED_CONFIDENTIAL if needed
-if (SparkR::tableExists(HARMONIZED_CONFIDENTIAL)) {
-  harmonized_all <- tbl(sc, HARMONIZED_CONFIDENTIAL)
+# Check and create HARMONIZED_ALL if needed
+if (SparkR::tableExists(HARMONIZED_ALL)) {
+  harmonized_all <- tbl(sc, HARMONIZED_ALL)
 } else {
   create_query <- paste0(
-    "CREATE TABLE ", HARMONIZED_CONFIDENTIAL,
+    "CREATE TABLE ", HARMONIZED_ALL,
     " (", columns_sql, ") USING DELTA"
   )
   DBI::dbExecute(sc, create_query)
-  harmonized_all <- tbl(sc, HARMONIZED_CONFIDENTIAL)
+  harmonized_all <- tbl(sc, HARMONIZED_ALL)
 }
 
 # Check and create HARMONIZED_OFFICIAL if needed
@@ -122,16 +119,10 @@ for (i in seq_along(update_list)) {
   year_val <- item$year
   survey_val <- item$survname
   
-  # Skip excluded tables
-  if (tbl_name %in% TO_REMOVE) {
-    message(sprintf("Skipping excluded table: %s", tbl_name))
-    next
-  }
-  
   message(sprintf("Processing: %s", tbl_name))
   
   # Read source table
-  src_df <- tbl(sc, paste0(TABLE_QUALIFIER, ".", tbl_name))
+  src_df <- tbl(sc, paste0(TARGET_SCHEMA, ".", tbl_name))
   
   # Align to schema
   result <- align_dataframe_to_schema(src_df, schema, country_val, survey_val)
@@ -150,7 +141,7 @@ for (i in seq_along(update_list)) {
   
   # Add to appropriate lists
   all_dfs[[length(all_dfs) + 1]] <- aligned_df
-  if (!is.na(classification) && classification == OFFICIAL_CLASS) {
+  if (!is.na(classification) && classification != CONFIDENTIAL_CLASS) {
     ouo_dfs[[length(ouo_dfs) + 1]] <- aligned_df
   }
 }
@@ -159,7 +150,7 @@ for (i in seq_along(update_list)) {
 # Validation: Check that expected tables were processed
 # ============================================================================
 
-validate_processing_count(length(all_dfs), update_list, TO_REMOVE)
+validate_processing_count(length(all_dfs), update_list)
 
 # Union all tables and write results
 if (length(all_dfs) > 0) {
@@ -168,7 +159,7 @@ if (length(all_dfs) > 0) {
   # Union all dataframes at once
   final_df <- do.call(sdf_bind_rows, all_dfs)
   # Write to table
-  spark_write_table(final_df, HARMONIZED_CONFIDENTIAL, mode = "overwrite", options = list("overwriteSchema" = "true"))
+  spark_write_table(final_df, HARMONIZED_ALL, mode = "overwrite", options = list("overwriteSchema" = "true"))
 }
 
 if (length(ouo_dfs) > 0) {
@@ -185,8 +176,8 @@ if (length(ouo_dfs) > 0) {
 # Update metadata with new stacked versions
 # ============================================================================
 
-metadata_final <- update_metadata_versions(metadata, change_keys)
-
+metadata_final <- update_metadata_versions(metadata, change_keys, 
+                                          HARMONIZED_ALL, HARMONIZED_OFFICIAL, sc)
 # Write updated metadata back to table
 spark_write_table(metadata_final, METADATA_TABLE, mode = "overwrite")
 
@@ -194,6 +185,6 @@ spark_write_table(metadata_final, METADATA_TABLE, mode = "overwrite")
 # Validation: Verify metadata sync worked correctly
 # ============================================================================
 
-validate_metadata_sync(METADATA_TABLE, change_keys, sc)
+validate_metadata_sync(METADATA_TABLE, change_keys, HARMONIZED_ALL, HARMONIZED_OFFICIAL, sc)
 
 message("Stacking process completed successfully!")
