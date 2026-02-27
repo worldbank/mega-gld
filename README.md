@@ -31,12 +31,13 @@ ___
 - `household_level` - TRUE if the dataset contains the hhid variable; 
 - `ingested` - TRUE if the ingestion process is successful
 - `table_version` - After each table is fully written, the script retrieves the table’s latest Delta version (the maximum version number). This version is stored in the __ingestion_metadata_ table and used for reproducibility, since the tables are overwritten when new versions are ingested.
-- `stacking` - 1 if the table is supposed to be stacked in the _gld_harmonized_*_ tables. 
 
 ___
 **metadata_parsing:** This scripts populates metadata fields that cannot be inferred from the filename:
 1. It identifies the .do file that corresponds to the .dta file ingested, and parses it to extract the description of changes from the previous version to the current one. Both `do_path` and `version_label` are stored in the __ingestion_metadata_ table.
-2. It identifies the .txt file "Where is this data from? - Readme.txt" file that corresponds to the .dta file ingested, and parses it to extract the data classification. This is stored as `classification` in the __ingestion_metadata_ table.
+2. It identifies the .txt file "Where is this data from? - Readme.txt" file that corresponds to the .dta file ingested, and parses it to extract the data classification. This is stored as `classification` in the __ingestion_metadata__ table.
+It also computes the `stacking` flag (1 if the table is supposed to be stacked in the _gld_harmonized_*_ tables, 0 otherwise).
+> The stacking flag identifies which dataset versions should be included for each country–year combination. Only datasets for which the data classification was successfully parsed are eligible to be stacked. For both annual data (by country–year) and quarterly data (by country–year–quarter), the most recent eligible version is stacked; if the latest version does not have a data classification in the __ingestion_metadata_ table, the logic falls back to the next most recent classified version. Panel datasets are always excluded from stacking, all other rows default to stacking = 0, and when multiple harmonization types exist for the same country–year, GLD datasets are preferred over GLD-Light.
 ___
 **table_stacking:** forthcoming.
 Every time a specific version of a data table is added to a stacked table (either as a new country/year addition or replacing an older version of a country/year dataset), the databricks table version of the stacked table is recorded in the __ingestion_metadata_ table.

@@ -12,6 +12,10 @@ library(dplyr)
 
 # COMMAND ----------
 
+# MAGIC %run "./helpers/stacking_flag_compute"
+
+# COMMAND ----------
+
 if (!exists("is_databricks")) {
   source("helpers/config.r")
 }
@@ -87,6 +91,8 @@ if (is_databricks()) {
 
   updated_metadata <- compute_metadata_updates(metadata)
 
+  updated_metadata <- compute_stacking(updated_metadata)
+
   if (identical(metadata, updated_metadata)) {
     return(print("No updates needed"))
   }
@@ -114,5 +120,25 @@ if (is_databricks()) {
   )
 
   DBI::dbExecute(sc, "DROP TABLE IF EXISTS tmp_new_meta")
+
+  print("Updating stacking flag...")
+  stacking_updates <- updated_metadata %>%
+    select(dta_path, stacking) %>%
+    distinct()
+
+  copy_to(sc, stacking_updates, "tmp_stacking_updates", overwrite = TRUE)
+
+  DBI::dbExecute(
+    sc,
+    paste0(
+      "MERGE INTO ", METADATA_TABLE, " t ",
+      "USING tmp_stacking_updates s ",
+      "ON t.dta_path = s.dta_path ",
+      "WHEN MATCHED THEN UPDATE SET t.stacking = s.stacking"
+    )
+  )
+
+  DBI::dbExecute(sc, "DROP TABLE IF EXISTS tmp_stacking_updates")
+  
   print("Done")
 }

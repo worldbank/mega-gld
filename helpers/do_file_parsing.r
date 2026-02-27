@@ -3,8 +3,6 @@ library(stringr)
 library(fs)
 library(readr)
 
-# Q: looks like find_do_files is always called with filename, simplify implementation?
-# select * from `prd_csc_mega`.`sgld48`.`_ingestion_metadata` where filename is null or filename = ''
 
 find_do_files <- function(dta_path, filename) {
   version_folder <- fs::path_dir(fs::path_dir(fs::path_dir(dta_path)))

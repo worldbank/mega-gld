@@ -64,55 +64,6 @@ def apply_column_comments(spark, full_table_name, var_labels):
             print(f"Skipping comment for {full_table_name}.{col_name}: {e}")
 
 
-def compute_stacking(pdf):
-    out = pdf.copy()
-
-    # default: stacking = 1
-    out["stacking"] = 1
-
-    # add 0 for panel tables
-    is_panel = out["table_name"].astype(str).str.contains("panel", case=False, na=False)
-    out.loc[is_panel, "stacking"] = 0
-
-    # annual rows only (quarter null/empty) can conflict on country-year
-    is_annual = out["quarter"].isna() | (out["quarter"].astype(str).str.strip() == "")
-    annual = out[is_annual]
-
-    # duplicates among annual (country, year)
-    conflict_mask = annual.duplicated(subset=["country", "year"], keep=False)
-
-    if conflict_mask.any():
-        conflicted = annual[conflict_mask].copy()
-
-        # priority: GLD over GLD-Light
-        harm_prio = (
-            conflicted["harmonization"]
-            .map({"GLD": 2, "GLD-Light": 1})
-            .fillna(0)
-            .astype(int)
-        )
-
-        conflicted["harm_prio"] = harm_prio
-
-        # best first
-        conflicted = conflicted.sort_values(
-            ["country", "year", "harm_prio", "M_version", "A_version"],
-            ascending=[True, True, False, False, False],
-        )
-
-        # pick winner per (country, year)
-        winners = conflicted.drop_duplicates(
-            subset=["country", "year"], keep="first"
-        ).index
-
-        # set all conflicted annual rows to 0, then winners to 1
-        out.loc[conflicted.index, "stacking"] = 0
-        out.loc[winners, "stacking"] = 1
-
-        # panel always stays 0
-        out.loc[is_panel, "stacking"] = 0
-
-    return out
 
 
 def get_table_version(spark, full_table_name):
