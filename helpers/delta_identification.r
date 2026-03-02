@@ -44,7 +44,7 @@ parse_metadata_from_filename <- function(path) {
     country    = str_extract(fname, "^[A-Z]+(?=_)"),
     year       = str_match(fname, "^[A-Z]+_([0-9]{4})")[ ,2],
     quarter    = str_match(fname, "-(Q[1-4])_")[ ,2],
-    survey     = str_match(fname, "(?i)^[A-Z]+_[0-9]{4}_(.+?)_v")[ ,2],
+    survey     = str_match(fname, "(?i)^[A-Z]+_[0-9]{4}_(.+?)_v")[ ,2] %>% str_replace("-(Q[1-4])$", ""),
     M_version  = str_match(fname, "(?i)_v([0-9]+)_m")[ ,2] %>% as.integer(),
     A_version  = str_match(fname, "(?i)_m_v([0-9]+)_a")[ ,2] %>% as.integer()
   )
