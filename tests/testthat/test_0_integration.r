@@ -127,7 +127,7 @@ test_that("delta identification pipeline finds dta files and filters to latest v
   ind_2022_q3 <- latest_versions %>% filter(country == "IND", year == "2022", survey == "PLFS", quarter == "Q3")
   expect_equal(nrow(ind_2022_q3), 1)
   expect_equal(ind_2022_q3$A_version, 2L)
-  expect_true(grepl("IND_2022-Q3_PLFS_V01_M_V02_A", ind_2022_q3$dta_path))
+  expect_true(grepl("IND_2022_PLFS-Q3_V01_M_V02_A", ind_2022_q3$dta_path))
 
   unlink(root_dir, recursive = TRUE)
 })
