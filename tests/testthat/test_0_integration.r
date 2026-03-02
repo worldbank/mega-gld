@@ -62,27 +62,27 @@ test_that("delta identification pipeline finds dta files and filters to latest v
     ),
     list(
       country = "IND",
-      dataset = "IND_2021-Q1_PLFS",
-      version = "IND_2021-Q1_PLFS_V01_M_V01_A_GLD",
-      dta = "IND_2021-Q1_PLFS_V01_M_V01_A_GLD_ALL.dta"
+      dataset = "IND_2021_PLFS-Q1",
+      version = "IND_2021_PLFS-Q1_V01_M_V01_A_GLD",
+      dta = "IND_2021_PLFS-Q1_V01_M_V01_A_GLD_ALL.dta"
     ),
     list(
       country = "IND",
-      dataset = "IND_2021-Q2_PLFS",
-      version = "IND_2021-Q2_PLFS_V01_M_V01_A_GLD",
-      dta     = "IND_2021-Q2_PLFS_V01_M_V01_A_GLD_ALL.dta"
+      dataset = "IND_2021_PLFS-Q2",
+      version = "IND_2021_PLFS-Q2_V01_M_V01_A_GLD",
+      dta     = "IND_2021_PLFS-Q2_V01_M_V01_A_GLD_ALL.dta"
     ),
     list(
       country = "IND",
-      dataset = "IND_2022-Q3_PLFS",
-      version = "IND_2022-Q3_PLFS_V01_M_V01_A_GLD",
-      dta = "IND_2022-Q3_PLFS_V01_M_V01_A_GLD_ALL.dta"
+      dataset = "IND_2022_PLFS-Q3",
+      version = "IND_2022_PLFS-Q3_V01_M_V01_A_GLD",
+      dta = "IND_2022_PLFS-Q3_V01_M_V01_A_GLD_ALL.dta"
     ),
     list(
       country = "IND",
-      dataset = "IND_2022-Q3_PLFS",
-      version = "IND_2022-Q3_PLFS_V01_M_V02_A_GLD",
-      dta     = "IND_2022-Q3_PLFS_V01_M_V02_A_GLD_ALL.dta"
+      dataset = "IND_2022_PLFS-Q3",
+      version = "IND_2022_PLFS-Q3_V01_M_V02_A_GLD",
+      dta     = "IND_2022_PLFS-Q3_V01_M_V02_A_GLD_ALL.dta"
     )
   )
 
