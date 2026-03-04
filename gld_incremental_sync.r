@@ -53,6 +53,7 @@ expected_cols <- names(schema)
 # ============================================================================
 
 metadata <- tbl(sc, METADATA_TABLE)
+validate_metadata_inputs(metadata %>% collect(), "metadata_read")
 change_keys <- identify_changes(metadata)
 
 # Validation: Check if any changes were detected
@@ -203,6 +204,7 @@ if (length(ouo_dfs) > 0) {
 metadata_final <- update_metadata_versions(metadata, change_keys, 
                                           HARMONIZED_ALL, HARMONIZED_OFFICIAL, sc)
 # Write updated metadata back to table
+validate_metadata_inputs(metadata_final %>% collect(), "metadata_write")
 spark_write_table(metadata_final, METADATA_TABLE, mode = "overwrite")
 
 # ============================================================================

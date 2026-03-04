@@ -5,6 +5,28 @@ library(dplyr)
 library(sparklyr)
 OFFICIAL_CLASS <- "Official Use"
 
+#' Validate that the metadata table meets all expected data quality requirements
+#' before entering the stacking pipeline. Stops with an informative error
+#' if any check fails.
+#'
+#' @param df A data.frame (or tibble) to validate.
+#' @param caller Name of the calling context, used in error messages.
+validate_metadata_inputs <- function(df, caller = "unknown") {
+  errors <- character()
+
+  # quarter must be a non-null string ("NA" for annual surveys)
+  if ("quarter" %in% names(df) && any(is.na(df$quarter))) {
+    errors <- c(errors, "column 'quarter' contains NA values — use the string 'NA' for annual surveys")
+  }
+
+  if (length(errors) > 0) {
+    stop(
+      sprintf("%s: metadata validation failed:\n - %s", caller, paste(errors, collapse = "\n - ")),
+      call. = FALSE
+    )
+  }
+}
+
 #' Identify tables that need to be updated based on version changes
 #'
 #' @param metadata_df DataFrame containing ingestion metadata
@@ -166,7 +188,7 @@ align_dataframe_to_schema <- function(src_df, schema, country_val, survey_val, q
 #' @param harmonized_ouo_table Full table name for harmonized OUO table
 #' @param sc Spark connection
 #' @return Updated metadata DataFrame
-update_metadata_versions <- function(metadata_df, change_keys_df, 
+update_metadata_versions <- function(metadata_df, change_keys_df,
                                     harmonized_all_table, harmonized_ouo_table, sc) {
   new_all_version <- as.integer(get_delta_table_version(harmonized_all_table, sc))
   new_ouo_version <- as.integer(get_delta_table_version(harmonized_ouo_table, sc))

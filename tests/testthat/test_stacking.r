@@ -50,7 +50,7 @@ test_that("compute_stacking works correctly on provided fixture", {
       2019, 2019, 2019, 2019, 2019, 2005, 2005
     ),
     quarter = c(
-      NA, NA, "Q1", "Q2", "Q2", NA, NA
+      "NA", "NA", "Q1", "Q2", "Q2", "NA", "NA"
     ),
     classification = c(
       "Official Use",
@@ -94,7 +94,7 @@ test_that("compute_stacking works correctly on provided fixture", {
 
   # at most one annual row per country-year stacks
   annual <- res %>%
-    filter(is.na(quarter), !str_detect(table_name, "panel")) %>%
+    filter(quarter == "NA", !str_detect(table_name, "panel")) %>%
     group_by(country, year) %>%
     summarise(n = sum(stacking), .groups = "drop")
 
@@ -102,7 +102,7 @@ test_that("compute_stacking works correctly on provided fixture", {
 
   # at most one quarterly row per country-year-quarter stacks
   quarterly <- res %>%
-    filter(!is.na(quarter)) %>%
+    filter(quarter != "NA") %>%
     group_by(country, year, quarter) %>%
     summarise(n = sum(stacking), .groups = "drop")
 
@@ -112,4 +112,23 @@ test_that("compute_stacking works correctly on provided fixture", {
   expect_true(all(
     res$stacking == 0L | !is.na(res$classification)
   ))
+})
+
+test_that("compute_stacking stops when quarter contains NA", {
+  df <- tibble(
+    filename = "TST_2020_LFS_V01_M_V01_A_GLD",
+    table_name = "tst_2020_lfs",
+    harmonization = "GLD",
+    country = "TST",
+    year = 2020,
+    quarter = NA,
+    classification = "Official Use",
+    A_version = 1,
+    M_version = 1
+  )
+
+  expect_error(
+    compute_stacking(df),
+    "column 'quarter' contains NA values"
+  )
 })
