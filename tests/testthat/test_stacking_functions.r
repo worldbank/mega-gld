@@ -194,6 +194,35 @@ test_that("identify_changes handles quarterly surveys correctly", {
   expect_true("Q2" %in% changes$quarter)
 })
 
+test_that("identify_changes picks up annual and quarterly updates together", {
+  # Mixed fixture: annual + Q1 need stacking, Q2 is already up to date
+  test_metadata <- data.frame(
+    table_name = c(
+      "TST_2020_LFS_V01_M_V01_A_GLD_ALL",
+      "TST_2020_LFS-Q1_V01_M_V01_A_GLD_ALL",
+      "TST_2020_LFS-Q2_V01_M_V01_A_GLD_ALL"
+    ),
+    classification = c("Official Use", "Official Use", "Official Use"),
+    country = c("TST", "TST", "TST"),
+    year = c("2020", "2020", "2020"),
+    survey = c("LFS", "LFS", "LFS"),
+    quarter = c("NA", "Q1", "Q2"),
+    table_version = c(1, 1, 1),
+    stacking = c(1, 1, 1),
+    stacked_all_table_version = c(NA_integer_, NA_integer_, 1L),
+    stacked_ouo_table_version = c(NA_integer_, NA_integer_, 1L),
+    stringsAsFactors = FALSE
+  )
+
+  changes <- identify_changes(test_metadata)
+
+  # Annual and Q1 should be picked up, Q2 should not
+  expect_equal(nrow(changes), 2)
+  expect_true("NA" %in% changes$quarter)
+  expect_true("Q1" %in% changes$quarter)
+  expect_false("Q2" %in% changes$quarter)
+})
+
 # COMMAND ----------
 
 # =============================================================================
@@ -433,6 +462,57 @@ test_that("update_metadata_versions preserves unchanged records", {
     row_2021 <- updated[updated$country == "TST" & updated$year == 2021L, ]
     expect_equal(row_2021$stacked_all_table_version, 3L)
     expect_equal(row_2021$stacked_ouo_table_version, 3L)
+  })
+})
+
+test_that("update_metadata_versions updates annual and quarterly independently", {
+  # Metadata has 3 rows: annual, Q1, Q2 — all same country/year/survey
+  # Only annual and Q1 are in the change set; Q2 must stay untouched
+  with_mocked_delta_version(7, {
+    test_metadata <- data.frame(
+      table_name = c(
+        "TST_2020_LFS_V01_M_V01_A_GLD_ALL",
+        "TST_2020_LFS-Q1_V01_M_V01_A_GLD_ALL",
+        "TST_2020_LFS-Q2_V01_M_V01_A_GLD_ALL"
+      ),
+      classification = c("Official Use", "Official Use", "Official Use"),
+      country = c("TST", "TST", "TST"),
+      year = c(2020L, 2020L, 2020L),
+      survey = c("LFS", "LFS", "LFS"),
+      quarter = c("NA", "Q1", "Q2"),
+      table_version = c(1L, 1L, 1L),
+      stacked_all_table_version = c(NA_integer_, NA_integer_, 4L),
+      stacked_ouo_table_version = c(NA_integer_, NA_integer_, 4L),
+      stringsAsFactors = FALSE
+    )
+
+    test_changes <- data.frame(
+      countrycode = c("TST", "TST"),
+      year = c(2020L, 2020L),
+      survname = c("LFS", "LFS"),
+      quarter = c("NA", "Q1"),
+      table_version = c(1L, 1L),
+      stringsAsFactors = FALSE
+    )
+
+    updated <- update_metadata_versions(
+      test_metadata, test_changes,
+      "dummy_all_table", "dummy_ouo_table", sc = NULL
+    )
+
+    # Annual and Q1 should be updated to mocked version (7)
+    row_annual <- updated[updated$quarter == "NA", ]
+    expect_equal(row_annual$stacked_all_table_version, 7L)
+    expect_equal(row_annual$stacked_ouo_table_version, 7L)
+
+    row_q1 <- updated[updated$quarter == "Q1", ]
+    expect_equal(row_q1$stacked_all_table_version, 7L)
+    expect_equal(row_q1$stacked_ouo_table_version, 7L)
+
+    # Q2 must remain at 4 — not touched by the update
+    row_q2 <- updated[updated$quarter == "Q2", ]
+    expect_equal(row_q2$stacked_all_table_version, 4L)
+    expect_equal(row_q2$stacked_ouo_table_version, 4L)
   })
 })
 
