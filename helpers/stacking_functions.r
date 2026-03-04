@@ -181,7 +181,7 @@ update_metadata_versions <- function(metadata_df, change_keys_df,
     mutate(to_update = 1L)
   
   metadata_final <- metadata_df %>%
-    left_join(updates_df, by = c("country", "year", "survey")) %>%
+    left_join(updates_df, by = c("country", "year", "survey", "quarter")) %>%
     mutate(
       stacked_all_table_version = as.integer(if_else(
         !is.na(to_update),
@@ -249,7 +249,7 @@ validate_change_detection <- function(change_keys_df) {
       stop("Duplicate keys detected. Each country/year/survname should appear only once.")
     }
     
-    message("✓ Validated: All keys are unique (one row per country/year/survname)")
+    message("✓ Validated: All keys are unique (one row per country/year/survname/quarter)")
     return(TRUE)
   }
 

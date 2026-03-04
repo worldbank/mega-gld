@@ -1,15 +1,34 @@
 # Databricks notebook source
 # This script processes and stacks GLD harmonized tables
-
 library(sparklyr)
 library(dplyr)
 library(DBI)
 
 # COMMAND ----------
 
-# Source helper functions
-source("helpers/stacking_schema.r")
-source("helpers/stacking_functions.r")
+# MAGIC %run "./helpers/config"
+
+# COMMAND ----------
+
+# MAGIC %run "./helpers/stacking_schema"
+# MAGIC
+
+# COMMAND ----------
+
+# MAGIC %run "./helpers/stacking_functions"
+
+# COMMAND ----------
+
+if (!exists("is_databricks")) {
+  source("helpers/config.r")
+}
+
+if (!is_databricks()) {
+  source("helpers/stacking_schema.r")
+  source("helpers/stacking_functions.r")
+}
+
+# COMMAND ----------
 
 # Connect to Spark
 sc <- spark_connect(method = "databricks")
@@ -83,13 +102,15 @@ harmonized_all_cleaned <- harmonized_all %>%
   anti_join(
     change_keys %>% select(countrycode, year, survname, quarter),
     by = c("countrycode", "year", "survname", "quarter")
-  )
+  )%>%
+  select(all_of(expected_cols))
 
 harmonized_ouo_cleaned <- harmonized_ouo %>%
   anti_join(
     change_keys %>% select(countrycode, year, survname, quarter),
     by = c("countrycode", "year", "survname", "quarter")
-  )
+  )%>%
+  select(all_of(expected_cols))
 
 # ============================================================================
 # Validation: Verify records were removed correctly
