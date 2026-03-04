@@ -145,7 +145,7 @@ build_harmonized_metadata <- function(
     household_level = TRUE,
     country         = map(table_names, ~ get_unique_vec(data_tables[[.x]], "countrycode")),
     year            = map_chr(table_names, ~ get_year_range_chr(data_tables[[.x]])),
-    quarter         = NA_character_,
+    quarter         = 'NA',
     survey          = NA_character_,
     V_version       = map_int(table_names, ~ get_version(tbl_metadata, .x)),
     version_label   = map_chr(table_names, ~ get_version_label(sc, tbl_metadata, .x)),

@@ -8,6 +8,7 @@ get_gld_schema <- function() {
     countrycode = "string",
     survname = "string",
     survey = "string",
+    quarter = "string",
     icls_v = "string",
     isced_version = "string",
     isco_version = "string",

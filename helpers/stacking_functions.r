@@ -26,6 +26,7 @@ identify_changes <- function(metadata_df) {
       classification,
       countrycode = country,
       year,
+      quarter,
       survname = survey,
       table_version,
       stacked_all_table_version,
@@ -35,7 +36,8 @@ identify_changes <- function(metadata_df) {
     mutate(
       year = as.integer(year),
       countrycode = as.character(countrycode),
-      survname = as.character(survname)
+      survname = as.character(survname),
+      quarter = as.character(quarter)
     ) %>%
     distinct()
   
@@ -61,6 +63,7 @@ build_update_list <- function(change_keys_df) {
     country <- row$countrycode
     year <- row$year
     survname <- row$survname
+    quarter <- row$quarter
     table_version <- row$table_version
     
     # Add to update list
@@ -69,7 +72,8 @@ build_update_list <- function(change_keys_df) {
       classification = classification,
       country = country,
       year = year,
-      survname = survname
+      survname = survname,
+      quarter = quarter
     )
     
     # Log the action
@@ -97,7 +101,7 @@ build_update_list <- function(change_keys_df) {
 #' @param country_val Country code value to add
 #' @param survey_val Survey name value to add
 #' @return List with two elements: aligned_df (DataFrame) and extra_cols (character vector)
-align_dataframe_to_schema <- function(src_df, schema, country_val, survey_val) {
+align_dataframe_to_schema <- function(src_df, schema, country_val, survey_val, quarter_val) {
   
   # Extract expected columns from schema
   expected_cols <- names(schema)
@@ -115,7 +119,9 @@ align_dataframe_to_schema <- function(src_df, schema, country_val, survey_val) {
       mutate_exprs[[col_name]] <- sql(paste0("CAST('", country_val, "' AS ", target_type, ")"))
     } else if (col_name == "survname" && !is.null(survey_val)) {
       mutate_exprs[[col_name]] <- sql(paste0("CAST('", survey_val, "' AS ", target_type, ")"))
-    } else if (col_name %in% src_cols) {
+    } else if (col_name == "quarter" && !is.null(quarter_val)) {
+      mutate_exprs[[col_name]] <- sql(paste0("CAST('", quarter_val, "' AS ", target_type, ")"))
+    }  else if (col_name %in% src_cols) {
       # Column exists in source, cast it to schema type
       mutate_exprs[[col_name]] <- sql(paste0("CAST(", col_name, " AS ", target_type, ")"))
     } else {
@@ -168,7 +174,8 @@ update_metadata_versions <- function(metadata_df, change_keys_df,
     select(
       country = countrycode,
       year,
-      survey = survname
+      survey = survname,
+      quarter
     ) %>%
     mutate(to_update = 1L)
   
@@ -229,7 +236,7 @@ validate_change_detection <- function(change_keys_df) {
   }
 
     duplicate_check <- change_keys_df %>%
-    group_by(countrycode, year, survname) %>%
+    group_by(countrycode, year, survname, quarter) %>%
     count() %>%
     filter(n > 1) %>%
     collect()

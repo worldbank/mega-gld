@@ -17,11 +17,11 @@ sc <- spark_connect(method = "databricks")
 OFFICIAL_CLASS     <- "Official Use"
 CONFIDENTIAL_CLASS <- "Confidential"
 TARGET_SCHEMA  <- "prd_csc_mega.sgld48"
-METADATA_TABLE <- paste0(TARGET_SCHEMA, "._ingestion_metadata")
+METADATA_TABLE <- paste0(TARGET_SCHEMA, ".test_ingestion_metadata")
 
 # Table names
-HARMONIZED_ALL <- paste0(TARGET_SCHEMA, ".GLD_HARMONIZED_ALL")
-HARMONIZED_OFFICIAL <- paste0(TARGET_SCHEMA, ".GLD_HARMONIZED_OUO")
+HARMONIZED_ALL <- paste0(TARGET_SCHEMA, ".GLD_HARMONIZED_ALL_TEST")
+HARMONIZED_OFFICIAL <- paste0(TARGET_SCHEMA, ".GLD_HARMONIZED_OUO_TEST")
 
 # Get schema
 schema <- get_gld_schema()
@@ -79,14 +79,14 @@ if (SparkR::tableExists(HARMONIZED_OFFICIAL)) {
 # Remove records that will be updated using anti-join
 harmonized_all_cleaned <- harmonized_all %>%
   anti_join(
-    change_keys %>% select(countrycode, year, survname),
-    by = c("countrycode", "year", "survname")
+    change_keys %>% select(countrycode, year, survname, quarter),
+    by = c("countrycode", "year", "survname", "quarter")
   )
 
 harmonized_ouo_cleaned <- harmonized_ouo %>%
   anti_join(
-    change_keys %>% select(countrycode, year, survname),
-    by = c("countrycode", "year", "survname")
+    change_keys %>% select(countrycode, year, survname, quarter),
+    by = c("countrycode", "year", "survname", "quarter")
   )
 
 # ============================================================================
@@ -118,14 +118,15 @@ for (i in seq_along(update_list)) {
   country_val <- item$country
   year_val <- item$year
   survey_val <- item$survname
-  
+  quarter_val <- item$quarter
+
   message(sprintf("Processing: %s", tbl_name))
   
   # Read source table
   src_df <- tbl(sc, paste0(TARGET_SCHEMA, ".", tbl_name))
   
   # Align to schema
-  result <- align_dataframe_to_schema(src_df, schema, country_val, survey_val)
+  result <- align_dataframe_to_schema(src_df, schema, country_val, survey_val, quarter_val)
   aligned_df <- result$aligned_df
   extra_cols <- result$extra_cols
   
