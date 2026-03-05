@@ -4,6 +4,14 @@ library(stringr)
 
 compute_stacking <- function(df) {
 
+  # Fail fast if quarter has NA values — must be fixed upstream
+  if (any(is.na(df$quarter))) {
+    stop(
+      "compute_stacking: column 'quarter' contains NA values. Fix upstream — use the string 'NA' for annual surveys.",
+      call. = FALSE
+    )
+  }
+
   base <- df %>%
     mutate(
       stacking = 0L,
@@ -20,7 +28,7 @@ compute_stacking <- function(df) {
   annual_winners <- base %>%
     filter(
       !is_panel,
-      is.na(quarter) | str_trim(as.character(quarter)) == "",
+      quarter == "NA" | str_trim(as.character(quarter)) == "",
       has_classification
     ) %>%
     group_by(country, year) %>%
@@ -32,7 +40,7 @@ compute_stacking <- function(df) {
   quarterly_winners <- base %>%
     filter(
       !is_panel,
-      !is.na(quarter),
+      quarter != "NA",
       str_trim(as.character(quarter)) != "",
       has_classification
     ) %>%

@@ -25,7 +25,7 @@ jobs:
 
       - name: Install R packages
         run: |
-          install.packages(c("testthat", "tibble", "dplyr", "purrr", "readr", "readxl", "haven", "zip", "stringr", "withr", "httr", "jsonlite"))
+          install.packages(c("testthat", "tibble", "dplyr", "purrr", "readr", "readxl", "haven", "zip", "stringr", "withr", "httr", "jsonlite", "sparklyr"))
         shell: Rscript {0}
 
       - name: Run tests
