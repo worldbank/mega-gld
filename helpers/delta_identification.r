@@ -7,7 +7,7 @@ list_dta_files <- function(paths) {
   unlist(map(paths, ~ list.files(.x, pattern = "\\.dta$", full.names = TRUE)))
 }
 
-identify_latest_versions <- function(root_dir) {
+identify_all_versions <- function(root_dir) {
   country_dirs <- list.dirs(root_dir, recursive = FALSE)
   dataset_dirs <- unlist(lapply(country_dirs, list.dirs, recursive = FALSE))
   version_dirs <- unlist(lapply(dataset_dirs, function(d) {
@@ -18,21 +18,15 @@ identify_latest_versions <- function(root_dir) {
   harmonized_paths <- harmonized_paths[dir.exists(harmonized_paths)]
 
   all_dta_files <- list_dta_files(harmonized_paths)
-  print(paste("Dta files collected:", length(all_dta_files)))
 
   if (length(all_dta_files) == 0) {
     return(tibble())
   }
 
   parsed <- bind_rows(lapply(all_dta_files, parse_metadata_from_filename))
-  latest_versions <- filter_latest_versions(parsed)
-  print(paste(
-    "Latest tables filtered:",
-    nrow(latest_versions), "datasets (by country-year-survey),",
-    "covering", n_distinct(latest_versions$country), "countries."
-  ))
+  print(paste("New tables filtered:", nrow(parsed),"covering", n_distinct(parsed$country), "countries."))
 
-  latest_versions
+  parsed
 }
 
 parse_metadata_from_filename <- function(path) {
@@ -60,10 +54,4 @@ make_table_name <- function(path) {
   tolower(nm)
 }
 
-filter_latest_versions <- function(parsed) {
-  parsed %>%
-    group_by(country, year, survey, quarter) %>%
-    arrange(desc(M_version), desc(A_version)) %>%
-    slice(1) %>%
-    ungroup()
-}
+
