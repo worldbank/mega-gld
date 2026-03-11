@@ -19,11 +19,11 @@ if (!exists("is_databricks")) {
 
 # COMMAND ----------
 
-# MAGIC %run ./testthat/test_0_integration
+# MAGIC %run ./testthat/test_delta_integration
 
 # COMMAND ----------
 
-# MAGIC %run ./testthat/test_2_integration
+# MAGIC %run ./testthat/test_parsing_integration
 
 # COMMAND ----------
 

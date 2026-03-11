@@ -24,22 +24,21 @@ if (is_databricks()) {
 
   # --- find harmonized data folders and dta files ---
 
-  latest_versions <- identify_latest_versions(ROOT_DIR)
-  latest_tables <- latest_versions$dta_path
+  all_versions <- identify_all_versions(ROOT_DIR)
 
   # --- check already ingested and add new files to metadata table ---
 
   metadata <- tbl(sc, METADATA_TABLE) %>% collect()
-  already_ingested <- metadata$dta_path[metadata$ingested == TRUE]
-  new_files <- setdiff(latest_tables, already_ingested)
-  print(paste("New files to ingest:", length(new_files)))
+  existing_paths <- metadata$dta_path
+  new_files <- setdiff(all_versions$dta_path, existing_paths)
+  print(paste("Files to be appended to the _ingestion_metadata table:", length(new_files)))
 
   if (length(new_files) > 0) {
     dataset_names <- basename(dirname(dirname(dirname(new_files))))
     new_filenames <- unique(dataset_names)
     print(new_filenames)
 
-    meta_details <- latest_versions %>% filter(dta_path %in% new_files)
+    meta_details <- all_versions %>% filter(dta_path %in% new_files)
 
     new_meta <- tibble(
       filename = dataset_names,
