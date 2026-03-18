@@ -22,7 +22,9 @@ USING (
 ON target.country <=> source.country
    AND target.year <=> source.year
    AND target.survey <=> source.survey
-   AND target.classification <=> source.classification
+
+WHEN MATCHED AND target.classification <=> source.classification = FALSE THEN
+UPDATE SET target.classification = source.classification
 
 WHEN NOT MATCHED THEN
 INSERT (country, year, survey, classification)
