@@ -70,7 +70,7 @@ test_that("parse_metadata_from_filename extracts quarter when present", {
 test_that("parse_metadata_from_filename returns NA for quarter when absent", {
   path <- "/root/USA/USA_2020_LFS_v01_M_v01_A/Data/Harmonized/file.dta"
   result <- parse_metadata_from_filename(path)
-  expect_true(is.na(result$quarter))
+  expect_equal(result$quarter, "NA")
 })
 
 test_that("parse_metadata_from_filename extracts survey name", {
