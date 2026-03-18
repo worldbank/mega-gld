@@ -12,12 +12,17 @@ USING DELTA;
 
 MERGE INTO prd_mega.gld.gld_availability AS target
 USING (
-    SELECT DISTINCT
-        country,
-        year,
-        survey,
-        classification
-    FROM prd_csc_mega.sgld48._ingestion_metadata
+    SELECT country, year, survey, classification
+    FROM (
+        SELECT
+            country,
+            year,
+            survey,
+            classification,
+            ROW_NUMBER() OVER (PARTITION BY country, year, survey ORDER BY table_version DESC) AS rn
+        FROM prd_csc_mega.sgld48._ingestion_metadata
+    )
+    WHERE rn = 1
 ) AS source
 ON target.country <=> source.country
    AND target.year <=> source.year
