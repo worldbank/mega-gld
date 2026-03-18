@@ -8,7 +8,7 @@ library(dplyr)
 
 # COMMAND ----------
 
-# MAGIC %run "./helpers/do_file_parsing"
+# MAGIC %run "./helpers/metadata_parsing"
 
 # COMMAND ----------
 
@@ -22,64 +22,10 @@ if (!exists("is_databricks")) {
 if (!exists("find_do_files")) {
   source("helpers/do_file_parsing.r")
 }
-
-compute_metadata_updates <- function(metadata) {
-  unpublished <- metadata %>%
-    filter(
-      published == FALSE,
-      is.na(do_path)
-    )
-
-  print(paste("Found", nrow(unpublished), "unpublished records missing do_path"))
-
-  if (nrow(unpublished) == 0) {
-    return(metadata)
-  }
-
-  print("Finding do files...")
-  unpublished <- unpublished %>%
-    mutate(do_path = map2_chr(dta_path, filename, find_do_files))
-
-  print("Parsing do files...")
-  parsed_rows <- lapply(seq_len(nrow(unpublished)), function(i) {
-    row <- unpublished[i, ]
-    do_file <- row$do_path[[1]]
-
-    if (is.character(do_file) && file.exists(do_file)) {
-      info <- parse_do_file(do_file)
-    } else {
-      info <- list()
-    }
-
-    info$filename <- row$filename
-    info
-  })
-
-  parsed_df <- bind_rows(parsed_rows)
-  print(paste("Parsed", nrow(parsed_df), "do files"))
-
-  # --- compute version ---
-  v_cols <- grep("^V\\d{2}$", names(parsed_df), value = TRUE)
-
-  parsed_df$latest_v_text <- apply(parsed_df[v_cols], 1, function(x) {
-    select_latest_version(as.list(x), v_cols)
-  })
-
-  parsed_df$version_label <- vapply(parsed_df$latest_v_text, make_version_label, character(1))
-
-  # --- add to metadata table ---
-  metadata %>%
-    mutate(
-      version_label = coalesce(
-        parsed_df$version_label[match(filename, parsed_df$filename)],
-        version_label
-      ),
-      do_path = coalesce(
-        unpublished$do_path[match(filename, unpublished$filename)],
-        do_path
-      )
-    )
+if (!exists("find_do_files")) {
+  source("helpers/do_file_parsing.r")
 }
+
 
 if (is_databricks()) {
   library(sparklyr)
@@ -112,6 +58,11 @@ if (is_databricks()) {
         ),
         do_path = (
           SELECT ANY_VALUE(p.do_path)
+          FROM tmp_new_meta p
+          WHERE p.filename = m.filename
+        ),
+        classification = (
+          SELECT ANY_VALUE(p.classification)
           FROM tmp_new_meta p
           WHERE p.filename = m.filename
         )

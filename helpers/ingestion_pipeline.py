@@ -39,7 +39,11 @@ def update_metadata(spark, metadata_table, dta_path, tbl_name, harm_type, househ
 
 
 def get_stata_var_labels(dta_path):
-    _, meta = pyreadstat.read_dta(dta_path, metadataonly=True)
+    try:
+        _, meta = pyreadstat.read_dta(dta_path, metadataonly=True)
+    except UnicodeDecodeError:
+        print(f"Warning: could not read var labels for {dta_path}, skipping.")
+        return {}
     return {
         name: label
         for name, label in zip(meta.column_names, meta.column_labels)

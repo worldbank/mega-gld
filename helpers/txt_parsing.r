@@ -19,7 +19,7 @@ find_txt_files <- function(harmonized_path, filename) {
     return("")
   }
 
-  txt_files <- dir_ls(programs_dir, glob = "*ReadMe.txt")
+  txt_files <- dir_ls(programs_dir, regexp = "(?i)(readme|where_is_this_data_from)\\.txt$")
 
   if (length(txt_files) == 1) {
     as.character(txt_files[1])
@@ -40,16 +40,16 @@ detect_classification <- function(path, filename) {
     error = function(e) ""
   )
   
-  if (str_detect(txt, regex("Classification:\\s*(OFFICIAL_USE|OFFICIAL USE)", ignore_case = TRUE))) {
+  if (str_detect(txt, regex("Classification[=:]\\s*(OFFICIAL_USE|OFFICIAL-USE|OFFICIAL USE)", ignore_case = TRUE))) {
     return("Official Use")
   }
 
-  if (str_detect(txt, regex("Classification:\\s*CONFIDENTIAL", ignore_case = TRUE))) {
-    return("Confidential")
+  if (str_detect(txt, regex("Classification[=:]\\s*CONFIDENTIAL", ignore_case = TRUE))) {
+      return("Confidential")
   }
 
   has_confidential <- str_detect(txt, regex("confidential|needs to approve", ignore_case = TRUE))
-  has_official_use <- str_detect(txt, regex("official use|public domain|publicly available|freely available|internal use only|downloadable freely|shared freely|free to use|no specific terms", ignore_case = TRUE))
+  has_official_use <- str_detect(txt, regex("official use|share it freely|public domain|publicly available|freely available|internal use only|downloadable freely|shared freely|free to use|no specific terms", ignore_case = TRUE))
 
   if (has_confidential) {
     "Confidential"

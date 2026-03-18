@@ -87,9 +87,10 @@ else:
                     sdf = spark.createDataFrame(pdf)
 
                     print("Writing:", full_write_table)
-                    sdf.write.mode("overwrite").format("delta").option("overwriteSchema", "true").saveAsTable(full_write_table)
+                    sdf.write.mode("overwrite").format("delta").option("overwriteSchema", "true").option("delta.logRetentionDuration", "interval 36500 days").option("delta.deletedFileRetentionDuration", "interval 36500 days").saveAsTable(full_write_table)
 
                     var_labels = get_stata_var_labels(dta_path)
+                    
                     #print("labels:", list(var_labels.items())[:10])
                     apply_column_comments(spark,full_write_table, var_labels)
                     table_version = get_table_version(spark,full_write_table)
@@ -119,7 +120,7 @@ else:
                 spark_schema = spark_df.schema
 
                 print("Writing first chunk →", full_write_table)
-                spark_df.write.mode("overwrite").format("delta").option("overwriteSchema", "true").saveAsTable(full_write_table)
+                spark_df.write.mode("overwrite").format("delta").option("overwriteSchema", "true").option("delta.logRetentionDuration", "interval 36500 days").option("delta.deletedFileRetentionDuration", "interval 36500 days").saveAsTable(full_write_table)
 
                 apply_column_comments(spark,full_write_table, var_labels)
 
@@ -148,7 +149,3 @@ else:
                 if obj in locals():
                     del locals()[obj]
             gc.collect()
-
-# COMMAND ----------
-
-
