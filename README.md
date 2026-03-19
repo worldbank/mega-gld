@@ -11,7 +11,7 @@ The pipeline is organized in three different jobs:
 
 This is a list of all support folders/files/tables:
 * The **`_ingestion_metadata table`** is a table that keeps track of which tables have been ingested and published in the Microdata Library, as well as of some dataset-specific metadata. It also stores the path to the dta files and do files that have been associated with that specific ingestion
-* [This Sharepoint file](https://worldbankgroup.sharepoint.com/:x:/r/sites/dap/gld/_layouts/15/Doc.aspx?sourcedoc=%7B3F8DB34F-8359-4BFC-86A0-5D14776E59E7%7D&file=survey-metadata.xlsx&action=default&mobileredirect=true) keeps track of all country survey specific metadata. 
+* [This Sharepoint file](https://worldbankgroup.sharepoint.com/:x:/r/sites/dap/gld/_layouts/15/Doc.aspx?sourcedoc=%7B3F8DB34F-8359-4BFC-86A0-5D14776E59E7%7D&file=survey-metadata.xlsx&action=default&mobileredirect=true){:target="_blank"} keeps track of all country survey specific metadata. 
 > When a new survey is onboarded to the GLD catalog, the survey should be added in this csv file. 
 * Country codes and names are matched using the MEGA table at prd_mega.indicator.country. 
 * The folder /Volumes/prd_csc_mega/sgld48/vgld48/Workspace/**json_to_publish**/ contains all json files awaiting publications. 
