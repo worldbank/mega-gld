@@ -11,7 +11,7 @@ The pipeline is organized in three different jobs:
 
 This is a list of all support folders/files/tables:
 * The **`_ingestion_metadata table`** is a table that keeps track of which tables have been ingested and published in the Microdata Library, as well as of some dataset-specific metadata. It also stores the path to the dta files and do files that have been associated with that specific ingestion
-* [This Sharepoint file](https://worldbankgroup.sharepoint.com/:x:/r/sites/dap/gld/Shared%20Documents/survey-metadata.xlsx?d=w1f9fabfc828d4908bd19e50216a1584d&csf=1&web=1&e=I8CCd4&nav=MTVfezc0NzcyRDUzLUEwQTAtNkY0Ri1CRERGLUY5NjkyNjhBMUUzNH0){target="_blank"} keeps track of all country survey specific metadata. 
+* [This Sharepoint file](https://worldbankgroup.sharepoint.com/:x:/r/sites/dap/gld/Shared%20Documents/survey-metadata.xlsx?d=w1f9fabfc828d4908bd19e50216a1584d&csf=1&web=1&e=I8CCd4&nav=MTVfezc0NzcyRDUzLUEwQTAtNkY0Ri1CRERGLUY5NjkyNjhBMUUzNH0) keeps track of all country survey specific metadata. 
 > When a new survey is onboarded to the GLD catalog, the survey should be added in this csv file. 
 * Country codes and names are matched using the MEGA table at prd_mega.indicator.country. 
 * The folder /Volumes/prd_csc_mega/sgld48/vgld48/Workspace/**json_to_publish**/ contains all json files awaiting publications. 
@@ -102,4 +102,8 @@ Import the repository into a Databricks workspace, then run `tests/testthat_run`
 #### Python tests
 Import the repository into a Databricks workspace, then run `tests/pytest_run` as a notebook. Please note that this will work only if the repository is added in a `/Workspace/Repos` folder. If the repository is uploaded in a `/Workspace/Users/` folder, the subprocess won't be able to identify pytest scripts. 
 
+## License
+This project is licensed under the [MIT License](https://github.com/dime-worldbank/mega-gld/blob/main/LICENSE.txt) together with the [World Bank IGO Rider](https://github.com/dime-worldbank/mega-gld/blob/main/WB-IGO-RIDER.md). The Rider is purely procedural: it reserves all privileges and immunities enjoyed by the World Bank, without adding restrictions to the MIT permissions. Please review both files before using, distributing or contributing.
 
+## Contacts
+Should you have any questions or suggestions, please reach out to gld@worldbank.org
