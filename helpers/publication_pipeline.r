@@ -226,58 +226,57 @@ handle_additional_data_resources <- function(project_id, idno, dta_path, ME_API_
   return()
 }
 
-## This function will need to be rewritten once API is fixed
-## catalog_connection_id needs to be updated before productionizing
-publish_project <- function(project_id, ME_API_KEY, catalog_connection_id, repositoryid, access_policy = "licensed",overwrite = "yes",published = 0) {
-  
-  call_get <- function(path) {
-    url <- paste0(METADATA_API_BASE, path, "/", project_id)
-    resp <- httr::GET(
-      url,
-      httr::add_headers(`X-API-KEY` = ME_API_KEY)
-    )
-    parsed <- httr::content(resp, as = "parsed", encoding = "UTF-8")
-    list(url = url, status_code = httr::status_code(resp), response = parsed)
-  }
-  
-  call_post <- function(body) {
-    url <- paste0(METADATA_API_BASE, "publish/", project_id, "/", catalog_connection_id)
-    resp <- httr::POST(
-      url,
-      httr::add_headers(`X-API-KEY` = ME_API_KEY),
-      body = body,
-      encode = "json"
-    )
-    parsed <- httr::content(resp, as = "parsed", encoding = "UTF-8")
-    list(url = url, status_code = httr::status_code(resp), response = parsed)
-  }
-  
-  out <- list()
-  
-  out$generate_json <- call_get("editor/generate_json")
-  out$generate_ddi  <- call_get("editor/generate_ddi")
-  out$write_json    <- call_get("resources/write_json")
-  out$write_rdf     <- call_get("resources/write_rdf")
-  out$generate_zip  <- call_get("packager/generate_zip")
-  
-  out$publish <- call_post(list(
-    repositoryid  = repositoryid,
-    access_policy = access_policy,
-    overwrite     = overwrite,
-    published     = published
-  ))
-  
-  out$success <- isTRUE(out$publish$status_code < 300)
-  
-  if (!out$success) {
-    msg <- out$publish$response$message
-    if (is.null(msg) || is.na(msg) || !nzchar(msg)) msg <- "Unknown error"
-    message("Dataset publish failed ", msg)
-  }
-  
-  out
-}
 
+
+publish_project <- function(project_id, ME_API_KEY, catalog_connection_id, publish_metadata = TRUE, publish_thumbnail = TRUE, publish_resources = TRUE, overwrite = "yes", priority = 0, max_attempts = 3) {
+  
+  url <- paste0(METADATA_API_BASE, "jobs/publish_to_nada")
+
+  body <- list(
+    project_id           = project_id,
+    catalog_connection_id = catalog_connection_id,
+    publish_metadata     = publish_metadata,
+    publish_thumbnail    = publish_thumbnail,
+    publish_resources    = publish_resources,
+    options              = list(overwrite = overwrite),
+    priority             = priority,
+    max_attempts         = max_attempts
+  )
+
+  resp <- httr::POST(
+    url,
+    httr::add_headers(`X-API-KEY` = ME_API_KEY),
+    body   = body,
+    encode = "json"
+  )
+
+  parsed     <- httr::content(resp, as = "parsed", encoding = "UTF-8")
+  status_ok  <- httr::status_code(resp) < 300 && identical(parsed$status, "success")
+
+  if (!status_ok) {
+    cat("Dataset publish failed: ", jsonlite::toJSON(parsed, auto_unbox = TRUE))
+    cat("project_id: ",            project_id)
+    cat("catalog_connection_id: ", catalog_connection_id)
+    cat("overwrite: ",             overwrite)
+    cat("priority: ",              priority)
+    cat("max_attempts: ",          max_attempts)
+  }
+
+  if (status_ok) {
+    cat("Dataset published successfully: ", project_id)
+  }
+
+  list(
+    url           = url,
+    status_code   = httr::status_code(resp),
+    success       = status_ok,
+    job_uuid      = parsed$job_uuid,
+    job           = parsed$job,
+    error_message = parsed$job$error_message,
+    response      = parsed,
+    payload       = body
+  )
+}
 
 ## This function updates the published flag in _ingestion_metadata
 update_metadata <- function(fname_base) {

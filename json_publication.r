@@ -102,18 +102,23 @@ if (is_databricks()) {
     # 5 upload additional data
     upload_data <- handle_additional_data_resources(project_id, idno, dta_path, ME_API_KEY, row)
 
-    # 6 publish project
-    publish <- publish_project(project_id, ME_API_KEY, catalog_connection_id = CATALOG_CONN_ID, repositoryid = REPOSITORY_ID)
-
-    # 7 update _ingestion_metadata table and delete json file if publish succeeded
-    if (isTRUE(publish$success)) {
-      update_metadata(fname_base)
-      file.remove(jfile)
-      message("Deleted json file: ", jfile)
+    # # 6 publish project
+    publish <- publish_project(project_id, ME_API_KEY, catalog_connection_id = CATALOG_CONN_ID)
+    if (publish$success) {
+        cat("Published:", paste0("https://microdatalibqa.worldbank.org/index.php/catalog/", project_id), "\n")
     } else {
-      message("Skipping metadata update (publish failed) for: ", fname_base)
+        cat("Publish FAILED for", idno, "\n")
     }
-    message("Dataset processing complete")
+
+    # # 7 update _ingestion_metadata table and delete json file if publish succeeded
+    # if (isTRUE(publish$success)) {
+    #   update_metadata(fname_base)
+    #   file.remove(jfile)
+    #   message("Deleted json file: ", jfile)
+    # } else {
+    #   message("Skipping metadata update (publish failed) for: ", fname_base)
+    # }
+    # message("Dataset processing complete")
   
   })
 }

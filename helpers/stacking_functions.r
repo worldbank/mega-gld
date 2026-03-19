@@ -1,8 +1,8 @@
 # Databricks notebook source
 # Core data processing functions for GLD stacking pipeline
-
 library(dplyr)
 library(sparklyr)
+
 OFFICIAL_CLASS <- "Official Use"
 
 #' Validate that the metadata table meets all expected data quality requirements
@@ -259,16 +259,16 @@ validate_change_detection <- function(change_keys_df) {
   }
 
     duplicate_check <- change_keys_df %>%
-    group_by(countrycode, year, survname, quarter) %>%
-    count() %>%
-    filter(n > 1) %>%
-    collect()
+      group_by(countrycode, year, survname, quarter) %>%
+      count() %>%
+      filter(n > 1) %>%
+      collect()
   
     if (nrow(duplicate_check) > 0) {
       message("ERROR: Found duplicate keys in change_keys!")
       message("The following country/year/survname combinations have multiple rows:")
       print(duplicate_check)
-      stop("Duplicate keys detected. Each country/year/survname should appear only once.")
+      stop("Duplicate keys detected. Each country/year/survname/quarter should appear only once.")
     }
     
     message("✓ Validated: All keys are unique (one row per country/year/survname/quarter)")

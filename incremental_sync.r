@@ -33,6 +33,9 @@ if (!is_databricks()) {
 # Connect to Spark
 sc <- spark_connect(method = "databricks")
 
+
+# COMMAND ----------
+
 # Configuration
 # Classification tagging
 OFFICIAL_CLASS     <- "Official Use"

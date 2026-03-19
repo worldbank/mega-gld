@@ -4,7 +4,18 @@ library(dplyr)
 library(stringr)
 
 list_dta_files <- function(paths) {
-  unlist(map(paths, ~ list.files(.x, pattern = "\\.dta$", full.names = TRUE)))
+  files <- unlist(map(paths, ~ list.files(.x, pattern = "\\.dta$", full.names = TRUE)))
+  
+  tibble(path = files) %>%
+    mutate(
+      folder_name = basename(dirname(dirname(dirname(path)))),
+      file_base = sub("_ALL$", "", tools::file_path_sans_ext(basename(path)), ignore.case = TRUE)
+    ) %>%
+    group_by(folder_name) %>%
+    arrange(desc(file_base == folder_name)) %>%
+    slice(1) %>%
+    ungroup() %>%
+    pull(path)
 }
 
 identify_all_versions <- function(root_dir) {
