@@ -19,14 +19,19 @@ validate_metadata_inputs <- function(df, caller = "unknown") {
 
   # quarter must be a non-null string ("NA" for annual surveys)
   if (is_spark_df) {
-    # For Spark DataFrames, check using Spark operations (only collect the count)
-    na_count <- df %>%
-      filter(is.na(quarter)) %>%
-      count() %>%
-      collect() %>%
-      pull(n)
-    if (na_count > 0) {
-      errors <- c(errors, sprintf("column 'quarter' contains %d NA values — use the string 'NA' for annual surveys", na_count))
+    # For Spark DataFrames, first ensure the 'quarter' column exists
+    if (!"quarter" %in% colnames(df)) {
+      errors <- c(errors, "column 'quarter' is missing from metadata")
+    } else {
+      # For Spark DataFrames, check using Spark operations (only collect the count)
+      na_count <- df %>%
+        filter(is.na(quarter)) %>%
+        count() %>%
+        collect() %>%
+        pull(n)
+      if (na_count > 0) {
+        errors <- c(errors, sprintf("column 'quarter' contains %d NA values — use the string 'NA' for annual surveys", na_count))
+      }
     }
   } else {
     # For local data.frames
