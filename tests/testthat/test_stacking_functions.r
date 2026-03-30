@@ -541,7 +541,7 @@ test_that("validate_change_detection returns TRUE when changes are found", {
   expect_true(result)
 })
 
-test_that("validate_change_detection stops when no changes are found", {
+test_that("validate_change_detection returns 0L when no changes are found", {
   test_empty <- data.frame(
     countrycode = character(0),
     year = integer(0),
@@ -550,10 +550,9 @@ test_that("validate_change_detection stops when no changes are found", {
     stringsAsFactors = FALSE
   )
 
-  expect_error(
-    suppressMessages(validate_change_detection(test_empty)),
-    "All tables are up-to-date"
-  )
+  result <- suppressMessages(validate_change_detection(test_empty))
+
+  expect_equal(result, 0L)
 })
 
 test_that("validate_change_detection allows same country-year-survey with different quarters", {
