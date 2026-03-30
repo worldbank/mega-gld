@@ -57,8 +57,9 @@ validate_metadata_inputs(metadata, "metadata_read")
 change_keys <- identify_changes(metadata)
 
 num_changes <- validate_change_detection(change_keys)
+
 if (num_changes == 0) {
-  stop("No changes detected in metadata; execution halted: no updates to process.")
+  dbutils.notebook.exit("No changes detected in metadata; execution halted: no updates to process.")
 }
 
 # COMMAND ----------
@@ -123,7 +124,7 @@ if (harmonized_all_count == 0) {
 } else {
   harmonized_all_cleaned <- harmonized_all %>%
     anti_join(change_keys_selected, by = c("countrycode", "year", "survname", "quarter")) %>%
-    select(all_of(expected_cols))
+    #select(all_of(expected_cols))
 }
 
 if (harmonized_ouo_count == 0) {
@@ -132,7 +133,7 @@ if (harmonized_ouo_count == 0) {
 } else {
   harmonized_ouo_cleaned <- harmonized_ouo %>%
     anti_join(change_keys_selected, by = c("countrycode", "year", "survname", "quarter")) %>%
-    select(all_of(expected_cols))
+    #select(all_of(expected_cols))
 }
 
 # COMMAND ----------
@@ -158,6 +159,7 @@ update_list <- build_update_list(change_keys)
 # Collect aligned dataframes (lazy references, not materialized yet)
 all_dfs <- list()
 ouo_dfs <- list()
+ouo_items <- list()
 all_columns <- character()  # Track all columns across all DataFrames
 
 # Process each table in the update list
@@ -196,6 +198,7 @@ for (i in seq_along(update_list)) {
   all_dfs[[length(all_dfs) + 1]] <- aligned_df
   if (!is.na(classification) && classification != CONFIDENTIAL_CLASS) {
     ouo_dfs[[length(ouo_dfs) + 1]] <- aligned_df
+    ouo_items[[length(ouo_items) + 1]] <- item
   }
 }
 
@@ -204,7 +207,9 @@ validate_processing_count(length(all_dfs), update_list)
 # Determine final schema: base columns + dynamic columns from new data + existing table columns
 # Include existing table columns to preserve any dynamic columns from previous runs
 existing_cols <- union(colnames(harmonized_all_cleaned), colnames(harmonized_ouo_cleaned))
-all_columns <- union(all_columns, existing_cols)
+existing_dynamic <- setdiff(existing_cols, expected_cols)
+existing_dynamic <- existing_dynamic[sapply(existing_dynamic, is_dynamic_column)]
+all_columns <- union(all_columns, c(expected_cols, existing_dynamic))
 dynamic_cols <- setdiff(all_columns, expected_cols)
 final_columns <- c(expected_cols, sort(dynamic_cols))
 
@@ -237,12 +242,18 @@ if (length(all_dfs) > 0) {
     start_idx <- (batch_idx - 1) * BATCH_SIZE + 1
     end_idx <- min(batch_idx * BATCH_SIZE, length(all_dfs))
     batch_dfs <- all_dfs[start_idx:end_idx]
+    batch_items <- update_list[start_idx:end_idx]
 
     if (length(batch_dfs) > 0) {
-      # Pad each DataFrame to match final schema before union
+      batch_filenames <- sapply(batch_items, function(x) x$filename)
+      message(sprintf("Batch %d/%d filenames: %s",
+        batch_idx, num_batches,
+        paste(batch_filenames, collapse = ", ")))
+
       batch_dfs_padded <- lapply(batch_dfs, pad_dataframe_columns, target_columns = final_columns)
       batch_union <- do.call(sdf_bind_rows, batch_dfs_padded)
       spark_write_table(batch_union, HARMONIZED_ALL, mode = "append")
+      mark_batch_as_stacked(batch_filenames, METADATA_TABLE, sc)
       message(sprintf("✓ Appended batch %d/%d (%d tables) to %s",
                       batch_idx, num_batches, length(batch_dfs), HARMONIZED_ALL))
     }
@@ -272,12 +283,18 @@ if (length(ouo_dfs) > 0) {
     start_idx <- (batch_idx - 1) * BATCH_SIZE + 1
     end_idx <- min(batch_idx * BATCH_SIZE, length(ouo_dfs))
     batch_dfs <- ouo_dfs[start_idx:end_idx]
+    batch_items <- ouo_items[start_idx:end_idx]
 
     if (length(batch_dfs) > 0) {
-      # Pad each DataFrame to match final schema before union
+      batch_filenames <- sapply(batch_items, function(x) x$filename)
+      message(sprintf("Batch %d/%d filenames: %s",
+        batch_idx, num_batches,
+        paste(batch_filenames, collapse = ", ")))
+
       batch_dfs_padded <- lapply(batch_dfs, pad_dataframe_columns, target_columns = final_columns)
       batch_union <- do.call(sdf_bind_rows, batch_dfs_padded)
       spark_write_table(batch_union, HARMONIZED_OFFICIAL, mode = "append")
+      mark_batch_as_stacked(batch_filenames, METADATA_TABLE, sc)
       message(sprintf("✓ Appended batch %d/%d (%d tables) to %s",
                       batch_idx, num_batches, length(batch_dfs), HARMONIZED_OFFICIAL))
     }

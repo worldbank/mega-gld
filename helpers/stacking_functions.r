@@ -66,6 +66,7 @@ identify_changes <- function(metadata_df) {
       )
     ) %>%
     select(
+      filename,
       table_name,
       classification,
       countrycode = country,
@@ -101,7 +102,7 @@ build_update_list <- function(change_keys_df) {
   
   for (i in seq_len(nrow(change_data))) {
     row <- change_data[i, ]
-    
+    filename <- row$filename
     table_name <- row$table_name
     classification <- row$classification
     country <- row$countrycode
@@ -112,6 +113,7 @@ build_update_list <- function(change_keys_df) {
     
     # Add to update list
     update_list[[i]] <- list(
+      filename = filename,
       table_name = table_name,
       classification = classification,
       country = country,
@@ -241,6 +243,7 @@ update_metadata_versions <- function(metadata_df, change_keys_df,
   
   updates_df <- change_keys_df %>%
     select(
+      filename,
       country = countrycode,
       year,
       survey = survname,
@@ -249,7 +252,7 @@ update_metadata_versions <- function(metadata_df, change_keys_df,
     mutate(to_update = 1L)
   
   metadata_final <- metadata_df %>%
-    left_join(updates_df, by = c("country", "year", "survey", "quarter")) %>%
+    left_join(updates_df, by = c("filename", "country", "year", "survey", "quarter")) %>%
     mutate(
       stacked_all_table_version = as.integer(if_else(
         !is.na(to_update),
@@ -302,7 +305,8 @@ validate_change_detection <- function(change_keys_df) {
   message(sprintf("Found %d table(s) that need updating", num_changes))
   
   if (num_changes == 0) {
-    stop("All tables are up-to-date. No stacking needed.")
+    message("All tables are up-to-date. No stacking needed.")
+    return(0L)
   }
 
     duplicate_check <- change_keys_df %>%
@@ -342,8 +346,8 @@ validate_record_removal <- function(original_df, cleaned_df, change_keys_df, tab
   # Verify no overlapping records remain
   duplicate_check <- cleaned_df %>%
     inner_join(
-      change_keys_df %>% select(countrycode, year, survname),
-      by = c("countrycode", "year", "survname")
+      change_keys_df %>% select(countrycode, year, quarter, survname),
+      by = c("countrycode", "year","quarter", "survname")
     ) %>%
     count() %>%
     collect() %>%
@@ -402,17 +406,17 @@ validate_metadata_sync <- function(metadata_table_name, change_keys_df,
   
   # Collect change_keys first to ensure columns are accessible
   change_keys_collected <- change_keys_df %>%
-    select(countrycode, year, survname) %>%
+    select(countrycode, year, quarter, survname) %>%
     collect()
   
   # Join with metadata to verify updates
   validation <- metadata_check %>%
-    select(country, year, survey, stacked_all_table_version, stacked_ouo_table_version) %>%
+    select(country, year, quarter, survey, stacked_all_table_version, stacked_ouo_table_version) %>%
     mutate(year = as.integer(year)) %>%
     collect() %>%
     inner_join(
       change_keys_collected,
-      by = c("country" = "countrycode", "year" = "year", "survey" = "survname")
+      by = c("country" = "countrycode", "year" = "year", "quarter" = "quarter", "survey" = "survname")
     )
   
   # Check that all stacked versions match the actual Delta table versions
@@ -435,4 +439,19 @@ validate_metadata_sync <- function(metadata_table_name, change_keys_df,
   message(sprintf("✓ Actual Delta versions - ALL: %d, OUO: %d", all_current_version, ouo_current_version))
   
   return(TRUE)
+}
+
+
+#' Mark a batch of filenames as successfully stacked in ingestion metadata
+#'
+#' @param filenames Character vector of filenames in the batch
+#' @param metadata_table_name Full table name for ingestion metadata
+#' @param sc Spark connection
+mark_batch_as_stacked <- function(filenames, metadata_table_name, sc) {
+  metadata <- tbl(sc, metadata_table_name) %>% collect()
+  metadata$stacked <- metadata$stacked | (metadata$filename %in% filenames)
+  spark_write_table(copy_to(sc, metadata, overwrite = TRUE), metadata_table_name, mode = "overwrite")
+  message(sprintf("✓ Marked %d filename(s) as stacked: %s",
+    length(filenames),
+    paste(filenames, collapse = ", ")))
 }
