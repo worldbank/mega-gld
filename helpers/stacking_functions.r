@@ -71,7 +71,7 @@ identify_changes <- function(metadata_df) {
 #' Build a list of updates from the change keys DataFrame
 #'
 #' @param change_keys_df DataFrame with tables that need updates
-#' @return List of lists, each containing: table_name, classification, country, year, survey
+#' @return List of lists, each containing: table_name, classification, country, year, quarter, survey
 build_update_list <- function(change_keys_df) {
   # Collect the data
   change_data <- change_keys_df %>% collect()
@@ -102,13 +102,13 @@ build_update_list <- function(change_keys_df) {
     # Log the action
     if (is.na(row$stacked_all_table_version)) {
       message(sprintf(
-        "ACTION: Adding BRAND NEW data for %s %s %s of the latest version %s",
-        country, year, survname, table_version
+        "ACTION: Adding BRAND NEW data for %s %s %s %s of the latest version %s",
+        country, year, quarter, survname, table_version
       ))
     } else {
       message(sprintf(
-        "ACTION: UPDATING existing data for %s %s %s with the latest version %s (Newer version detected)",
-        country, year, survname, table_version
+        "ACTION: UPDATING existing data for %s %s %s %s with the latest version %s (Newer version detected)",
+        country, year, quarter, survname, table_version
       ))
     }
   }
@@ -295,8 +295,8 @@ validate_record_removal <- function(original_df, cleaned_df, change_keys_df, tab
   # Verify no overlapping records remain
   duplicate_check <- cleaned_df %>%
     inner_join(
-      change_keys_df %>% select(countrycode, year, survname),
-      by = c("countrycode", "year", "survname")
+      change_keys_df %>% select(countrycode, year, survname, quarter),
+      by = c("countrycode", "year", "survname", "quarter")
     ) %>%
     count() %>%
     collect() %>%
@@ -355,17 +355,17 @@ validate_metadata_sync <- function(metadata_table_name, change_keys_df,
   
   # Collect change_keys first to ensure columns are accessible
   change_keys_collected <- change_keys_df %>%
-    select(countrycode, year, survname) %>%
+    select(countrycode, year, survname, quarter) %>%
     collect()
   
   # Join with metadata to verify updates
   validation <- metadata_check %>%
-    select(country, year, survey, stacked_all_table_version, stacked_ouo_table_version) %>%
+    select(country, year, survey, quarter, stacked_all_table_version, stacked_ouo_table_version) %>%
     mutate(year = as.integer(year)) %>%
     collect() %>%
     inner_join(
       change_keys_collected,
-      by = c("country" = "countrycode", "year" = "year", "survey" = "survname")
+      by = c("country" = "countrycode", "year" = "year", "survey" = "survname", "quarter"="quarter")
     )
   
   # Check that all stacked versions match the actual Delta table versions
@@ -379,7 +379,7 @@ validate_metadata_sync <- function(metadata_table_name, change_keys_df,
     message("ERROR: Metadata sync validation failed!")
     message(sprintf("Expected versions - ALL: %d, OUO: %d", all_current_version, ouo_current_version))
     message("The following tables have mismatched versions:")
-    print(sync_errors %>% select(country, year, survey, 
+    print(sync_errors %>% select(country, year, survey, quarter,
                                   stacked_all_table_version, stacked_ouo_table_version))
     stop("Metadata synchronization failed. Please investigate.")
   }

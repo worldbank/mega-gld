@@ -30,12 +30,7 @@ if (!is_databricks()) {
 
 # COMMAND ----------
 
-# Connect to Spark
-t0 <- Sys.time()
 sc <- spark_connect(method = "databricks")
-message(sprintf(">> Spark connect: %.1f sec", difftime(Sys.time(), t0, units = "secs")))
-
-# COMMAND ----------
 
 # Configuration
 OFFICIAL_CLASS     <- "Official Use"
@@ -47,6 +42,13 @@ expected_cols <- names(schema)
 
 # COMMAND ----------
 
+# Test
+METADATA_TABLE <- paste0(TARGET_SCHEMA, ".test_ingestion_metadata")
+HARMONIZED_ALL <- paste0(TARGET_SCHEMA, ".gld_harmonized_all_test")
+HARMONIZED_OFFICIAL <- paste0(TARGET_SCHEMA, ".gld_harmonized_ouo_test")
+
+# COMMAND ----------
+
 # Identify which country/year/survey to update
 t_step <- Sys.time()
 metadata <- tbl(sc, METADATA_TABLE)
@@ -55,7 +57,7 @@ change_keys <- identify_changes(metadata)
 
 num_changes <- validate_change_detection(change_keys)
 if (num_changes == 0) {
-  stop("No changes detected in metadata; execution halted: no updates to process.")
+  dbutils.notebook.exit(("No changes detected in metadata; execution halted: no updates to process."))
 }
 message(sprintf(">> Identify changes: %.1f sec", difftime(Sys.time(), t_step, units = "secs")))
 

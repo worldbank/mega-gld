@@ -13,7 +13,7 @@ ROOT_DIR <- "/Volumes/prd_csc_mega/sgld48/vgld48/Documents"
 JSON_DIR <- "/Volumes/prd_csc_mega/sgld48/vgld48/Workspace/json_to_publish"
 
 # Performance
-BATCH_SIZE <- 30
+BATCH_SIZE <- 15
 
 # Database
 TARGET_SCHEMA  <- "prd_csc_mega.sgld48"
