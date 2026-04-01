@@ -42,13 +42,6 @@ expected_cols <- names(schema)
 
 # COMMAND ----------
 
-# Test
-METADATA_TABLE <- paste0(TARGET_SCHEMA, ".test_ingestion_metadata")
-HARMONIZED_ALL <- paste0(TARGET_SCHEMA, ".gld_harmonized_all_test")
-HARMONIZED_OFFICIAL <- paste0(TARGET_SCHEMA, ".gld_harmonized_ouo_test")
-
-# COMMAND ----------
-
 # Identify which country/year/survey to update
 t_step <- Sys.time()
 metadata <- tbl(sc, METADATA_TABLE)
@@ -203,8 +196,3 @@ message(sprintf(">> Update metadata: %.1f sec", difftime(Sys.time(), t_step, uni
 t_step <- Sys.time()
 validate_metadata_sync(METADATA_TABLE, change_keys, HARMONIZED_ALL, HARMONIZED_OFFICIAL, sc)
 message(sprintf(">> Validate metadata sync: %.1f sec", difftime(Sys.time(), t_step, units = "secs")))
-
-# COMMAND ----------
-
-message(sprintf("\n== Total elapsed: %.1f sec ==", difftime(Sys.time(), t0, units = "secs")))
-message("Stacking process completed successfully!")
