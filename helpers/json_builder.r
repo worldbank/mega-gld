@@ -189,7 +189,7 @@ make_mdl_json <- function(row, countries_names) {
 
       version_statement = list(
         version = paste0("Version ",version_padded,
-                         ": Harmonized, anonymized dataset for, ", row$classification, " distribution."),
+                         ": Harmonized, anonymized dataset for", row$classification, " distribution."),
         version_date = prod_ym,
         version_notes = safe(row$version_label)
       ),

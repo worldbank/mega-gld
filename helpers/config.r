@@ -11,6 +11,8 @@ IN_DATABRICKS <- is_databricks()
 # Paths
 ROOT_DIR <- "/Volumes/prd_csc_mega/sgld48/vgld48/Documents"
 JSON_DIR <- "/Volumes/prd_csc_mega/sgld48/vgld48/Workspace/json_to_publish"
+CSV_HARMONIZED <- "/Volumes/prd_csc_mega/sgld48/vgld48/Workspace/harmonized_csv/"
+
 
 # Database
 TARGET_SCHEMA  <- "prd_csc_mega.sgld48"

@@ -48,8 +48,10 @@ if (is_databricks()) {
     message("Processing: ", jfile)
     json_obj <- jsonlite::read_json(jfile)
     fname_json <- basename(jfile)                
-    fname_base <- fname_json %>%
-      sub("\\.json$", "", .) %>%
+    idno <- fname_json %>%
+      sub("\\.json$", "", .) 
+
+    fname_base <- idno %>%
       sub("^DDI_", "", .) %>%
       sub("_WB$", "", .)
 
@@ -66,7 +68,6 @@ if (is_databricks()) {
       row <- row[1, , drop = FALSE]
     }
   
-    idno <- paste0("DDI_", row$filename, "_WB")
 
     # 1 create dataset
     project_id <- create_dataset(json_obj, ME_API_KEY)
@@ -110,15 +111,15 @@ if (is_databricks()) {
         cat("Publish FAILED for", idno, "\n")
     }
 
-    # # 7 update _ingestion_metadata table and delete json file if publish succeeded
-    # if (isTRUE(publish$success)) {
-    #   update_metadata(fname_base)
-    #   file.remove(jfile)
-    #   message("Deleted json file: ", jfile)
-    # } else {
-    #   message("Skipping metadata update (publish failed) for: ", fname_base)
-    # }
-    # message("Dataset processing complete")
+    # 7 update _ingestion_metadata table and delete json file if publish succeeded
+    if (isTRUE(publish$success)) {
+      update_metadata(fname_base)
+      file.remove(jfile)
+      message("Deleted json file: ", jfile)
+    } else {
+      message("Skipping metadata update (publish failed) for: ", fname_base)
+    }
+    message("Dataset processing complete")
   
   })
 }
