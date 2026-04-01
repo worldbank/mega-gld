@@ -9,14 +9,35 @@ OFFICIAL_CLASS <- "Official Use"
 #' before entering the stacking pipeline. Stops with an informative error
 #' if any check fails.
 #'
-#' @param df A data.frame (or tibble) to validate.
+#' @param df A Spark DataFrame or local data.frame to validate.
 #' @param caller Name of the calling context, used in error messages.
 validate_metadata_inputs <- function(df, caller = "unknown") {
   errors <- character()
 
+  # Check if it's a Spark DataFrame (tbl_spark) or local data.frame
+  is_spark_df <- inherits(df, "tbl_spark")
+
   # quarter must be a non-null string ("NA" for annual surveys)
-  if ("quarter" %in% names(df) && any(is.na(df$quarter))) {
-    errors <- c(errors, "column 'quarter' contains NA values — use the string 'NA' for annual surveys")
+  if (is_spark_df) {
+    # For Spark DataFrames, first ensure the 'quarter' column exists
+    if (!"quarter" %in% colnames(df)) {
+      errors <- c(errors, "column 'quarter' is missing from metadata")
+    } else {
+      # For Spark DataFrames, check using Spark operations (only collect the count)
+      na_count <- df %>%
+        filter(is.na(quarter)) %>%
+        count() %>%
+        collect() %>%
+        pull(n)
+      if (na_count > 0) {
+        errors <- c(errors, sprintf("column 'quarter' contains %d NA values — use the string 'NA' for annual surveys", na_count))
+      }
+    }
+  } else {
+    # For local data.frames
+    if ("quarter" %in% names(df) && any(is.na(df$quarter))) {
+      errors <- c(errors, "column 'quarter' contains NA values — use the string 'NA' for annual surveys")
+    }
   }
 
   if (length(errors) > 0) {
@@ -45,6 +66,7 @@ identify_changes <- function(metadata_df) {
       )
     ) %>%
     select(
+      filename,
       table_name,
       classification,
       countrycode = country,
@@ -80,7 +102,7 @@ build_update_list <- function(change_keys_df) {
   
   for (i in seq_len(nrow(change_data))) {
     row <- change_data[i, ]
-    
+    filename <- row$filename
     table_name <- row$table_name
     classification <- row$classification
     country <- row$countrycode
@@ -91,6 +113,7 @@ build_update_list <- function(change_keys_df) {
     
     # Add to update list
     update_list[[i]] <- list(
+      filename = filename,
       table_name = table_name,
       classification = classification,
       country = country,
@@ -180,6 +203,31 @@ align_dataframe_to_schema <- function(src_df, schema, country_val, survey_val, q
 }
 
 
+#' Pad a DataFrame with missing columns (as NULL) to match a target schema
+#'
+#' @param df Spark DataFrame to pad
+#' @param target_columns Character vector of all columns that should be present
+#' @return DataFrame with all target columns (missing ones filled with NULL as STRING)
+pad_dataframe_columns <- function(df, target_columns) {
+  current_cols <- colnames(df)
+  missing_cols <- setdiff(target_columns, current_cols)
+
+  if (length(missing_cols) == 0) {
+    return(df %>% select(all_of(target_columns)))
+  }
+
+  # Add missing columns as NULL (STRING type for dynamic columns)
+  mutate_exprs <- list()
+  for (col in missing_cols) {
+    mutate_exprs[[col]] <- sql("CAST(NULL AS STRING)")
+  }
+
+  df %>%
+    mutate(!!!mutate_exprs) %>%
+    select(all_of(target_columns))
+}
+
+
 #' Update metadata with new stacked versions
 #'
 #' @param metadata_df Original metadata DataFrame
@@ -195,6 +243,7 @@ update_metadata_versions <- function(metadata_df, change_keys_df,
   
   updates_df <- change_keys_df %>%
     select(
+      filename,
       country = countrycode,
       year,
       survey = survname,
@@ -203,7 +252,7 @@ update_metadata_versions <- function(metadata_df, change_keys_df,
     mutate(to_update = 1L)
   
   metadata_final <- metadata_df %>%
-    left_join(updates_df, by = c("country", "year", "survey", "quarter")) %>%
+    left_join(updates_df, by = c("filename", "country", "year", "survey", "quarter")) %>%
     mutate(
       stacked_all_table_version = as.integer(if_else(
         !is.na(to_update),
@@ -231,17 +280,18 @@ get_delta_table_version <- function(table_name, sc) {
   # Split the name by the dots and quote each part individually
   parts <- unlist(strsplit(table_name, "\\."))
   quoted_parts <- paste0("`", parts, "`", collapse = ".")
-  
-  history_query <- sprintf("DESCRIBE HISTORY %s", quoted_parts)
-  
+
+  # Only fetch the latest version to avoid collecting entire history to driver
+  history_query <- sprintf("DESCRIBE HISTORY %s LIMIT 1", quoted_parts)
+
   # Execute
   history <- DBI::dbGetQuery(sc, history_query)
-  
+
   if (nrow(history) == 0) {
     stop(sprintf("No history found for table %s", table_name))
   }
-  
-  return(max(history$version))
+
+  return(history$version[1])
 }
 
 
@@ -255,7 +305,8 @@ validate_change_detection <- function(change_keys_df) {
   message(sprintf("Found %d table(s) that need updating", num_changes))
   
   if (num_changes == 0) {
-    stop("All tables are up-to-date. No stacking needed.")
+    message("All tables are up-to-date. No stacking needed.")
+    return(0L)
   }
 
     duplicate_check <- change_keys_df %>%
@@ -295,8 +346,8 @@ validate_record_removal <- function(original_df, cleaned_df, change_keys_df, tab
   # Verify no overlapping records remain
   duplicate_check <- cleaned_df %>%
     inner_join(
-      change_keys_df %>% select(countrycode, year, survname),
-      by = c("countrycode", "year", "survname")
+      change_keys_df %>% select(countrycode, year, quarter, survname),
+      by = c("countrycode", "year","quarter", "survname")
     ) %>%
     count() %>%
     collect() %>%
@@ -355,17 +406,17 @@ validate_metadata_sync <- function(metadata_table_name, change_keys_df,
   
   # Collect change_keys first to ensure columns are accessible
   change_keys_collected <- change_keys_df %>%
-    select(countrycode, year, survname) %>%
+    select(countrycode, year, quarter, survname) %>%
     collect()
   
   # Join with metadata to verify updates
   validation <- metadata_check %>%
-    select(country, year, survey, stacked_all_table_version, stacked_ouo_table_version) %>%
+    select(country, year, quarter, survey, stacked_all_table_version, stacked_ouo_table_version) %>%
     mutate(year = as.integer(year)) %>%
     collect() %>%
     inner_join(
       change_keys_collected,
-      by = c("country" = "countrycode", "year" = "year", "survey" = "survname")
+      by = c("country" = "countrycode", "year" = "year", "quarter" = "quarter", "survey" = "survname")
     )
   
   # Check that all stacked versions match the actual Delta table versions
@@ -388,4 +439,19 @@ validate_metadata_sync <- function(metadata_table_name, change_keys_df,
   message(sprintf("✓ Actual Delta versions - ALL: %d, OUO: %d", all_current_version, ouo_current_version))
   
   return(TRUE)
+}
+
+
+#' Mark a batch of filenames as successfully stacked in ingestion metadata
+#'
+#' @param filenames Character vector of filenames in the batch
+#' @param metadata_table_name Full table name for ingestion metadata
+#' @param sc Spark connection
+mark_batch_as_stacked <- function(filenames, metadata_table_name, sc) {
+  metadata <- tbl(sc, metadata_table_name) %>% collect()
+  metadata$stacked <- metadata$stacked | (metadata$filename %in% filenames)
+  spark_write_table(copy_to(sc, metadata, overwrite = TRUE), metadata_table_name, mode = "overwrite")
+  message(sprintf("✓ Marked %d filename(s) as stacked: %s",
+    length(filenames),
+    paste(filenames, collapse = ", ")))
 }

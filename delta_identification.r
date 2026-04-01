@@ -46,6 +46,7 @@ if (is_databricks()) {
       dta_path = new_files,
       ingested = FALSE,
       published = FALSE,
+      stacked = FALSE, 
       harmonization = NA_character_,
       household_level = NA,
       version_label = NA_character_,
