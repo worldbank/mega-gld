@@ -39,10 +39,26 @@ ___
 It also computes the `stacking` flag (1 if the table is supposed to be stacked in the _gld_harmonized_*_ tables, 0 otherwise).
 > The stacking flag identifies which dataset versions should be included for each country–year combination. Only datasets for which the data classification was successfully parsed are eligible to be stacked. For both annual data (by country–year) and quarterly data (by country–year–quarter), the most recent eligible version is stacked; if the latest version does not have a data classification in the __ingestion_metadata_ table, the logic falls back to the next most recent classified version. Panel datasets are always excluded from stacking, all other rows default to stacking = 0, and when multiple harmonization types exist for the same country–year, GLD datasets are preferred over GLD-Light.
 ___
-**table_stacking:** forthcoming.
-Every time a specific version of a data table is added to a stacked table (either as a new country/year addition or replacing an older version of a country/year dataset), the databricks table version of the stacked table is recorded in the __ingestion_metadata_ table.
+**table_stacking:** stacks individual country–year survey tables into the consolidated _gld_harmonized_*_ tables. The script:
+1. Identifies which tables need to be added or updated by comparing `stacking` flags and existing `stacked_*_table_version` values in the __ingestion_metadata_ table.
+2. For each table to be stacked, aligns its columns to the standard schema defined in `helpers/stacking_schema.r` — casting types, filling missing columns with NULL, and carrying over dynamic columns (subnational IDs, GAUL codes).
+3. Removes existing rows for the affected country–year–survey–quarter combinations from the harmonized tables (anti-join), then writes the new data in batches and overwrites the production table atomically.
+4. Records the new Databricks Delta table version in the __ingestion_metadata_ table (`stacked_all_table_version`, `stacked_ouo_table_version`), which is later used to construct version statements for publication.
+
 > Example:
 > THA_2021_LFS-Q2_V01_M_V02_A_GLD is ingested in tha_2021_lfs_q2 table, overwriting its content (i.e.THA_2021_LFS-Q2_V01_M_V01_A_GLD). Subsequently, the rows of the _gld_harmonized_*_ table for Thailand 2021 are dropped, and replaced with the new rows from tha_2021_lfs_q2. After the replacement has occurred, the script retrieves the  _gld_harmonized_*_ latest Delta version (the maximum version number). This version is stored in the __ingestion_metadata_ table in the `stacked_ouo_table_version` column and used to compute the version statement in the **harmonized_json_creation** script.
+
+#### Updating the stacking schema when the data dictionary changes
+
+When a new column is added to or removed from the GLD data dictionary, the stacking schema must be updated so the harmonized tables reflect the change. The steps depend on whether the column is **static** (fixed name) or **dynamic** (name contains a numeric index).
+
+**Static columns** — edit `helpers/stacking_schema.r`, `get_gld_schema()`:
+- To **add** a column: insert a new entry in the list with the column name and its Spark SQL type (e.g., `new_column = "integer"`).
+- To **remove** a column: delete its entry from the list.
+
+**Dynamic columns** (columns whose names follow a pattern with a numeric index, e.g., `subnatid1`, `gaul_adm2_code`) — edit `helpers/stacking_schema.r`:
+1. Create a new `is_<name>_column()` helper that uses a regex to match the column name pattern (see `is_subnational_column` and `is_gaul_column` for examples).
+2. Update `is_dynamic_column()` to include the new helper with an `||` clause.
 <br>
 <br>
 
