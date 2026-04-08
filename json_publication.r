@@ -56,11 +56,10 @@ if (is_databricks()) {
     fname_json <- basename(jfile)                
     idno <- fname_json %>%
       sub("\\.json$", "", .) 
-    print(idno)
 
     # lookup file name in metadata
     row <- merged_df %>% filter(filename == idno)
-    print(row)
+
     if (nrow(row) == 0) {
       warning("No metadata match for ", idno)
       return(list(idno=idno, status="NO_METADATA"))
