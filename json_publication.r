@@ -19,6 +19,10 @@ library(readxl)
 
 # COMMAND ----------
 
+# MAGIC %run "./helpers/json_pipeline"
+
+# COMMAND ----------
+
 if (!exists("is_databricks")) {
   source("helpers/config.r")
 }
@@ -35,10 +39,12 @@ if (is_databricks()) {
   metadata <- tbl(sc, METADATA_TABLE) %>% collect()
   path_survey <- file.path(ROOT_DIR, "survey-metadata.xlsx")
   survey <- read_excel(path_survey)
+  
+  countries_names <- fetch_countries_names(sc)
 
-  merged_df <- left_join(metadata, survey, by = c("survey", "country"))
-
-  ME_API_KEY <- ME_API_KEY
+  merged_df <- left_join(metadata, survey, by = c("survey", "country")) %>%
+    left_join(countries_names, by = c("country" = "code"))
+  
 
   json_files <- list.files(JSON_DIR, pattern="\\.json$", full.names=TRUE)
   json_files <- json_files[!grepl("HARMONIZED", json_files)]
@@ -50,25 +56,21 @@ if (is_databricks()) {
     fname_json <- basename(jfile)                
     idno <- fname_json %>%
       sub("\\.json$", "", .) 
-
-    fname_base <- idno %>%
-      sub("^DDI_", "", .) %>%
-      sub("_WB$", "", .)
+    print(idno)
 
     # lookup file name in metadata
-    row <- merged_df %>% filter(filename == fname_base)
-
+    row <- merged_df %>% filter(filename == idno)
+    print(row)
     if (nrow(row) == 0) {
-      warning("No metadata match for ", fname_base)
-      return(list(idno=fname_base, status="NO_METADATA"))
+      warning("No metadata match for ", idno)
+      return(list(idno=idno, status="NO_METADATA"))
     }
 
     if (nrow(row) > 1) {
-      warning("Multiple metadata matches for ", fname_base," (", nrow(row), " rows). Using the first match.")
+      warning("Multiple metadata matches for ", idno," (", nrow(row), " rows). Using the first match.")
       row <- row[1, , drop = FALSE]
     }
   
-
     # 1 create dataset
     project_id <- create_dataset(json_obj, ME_API_KEY)
     if (is.na(project_id)) {return(NULL)}
@@ -103,7 +105,7 @@ if (is_databricks()) {
     # 5 upload additional data
     upload_data <- handle_additional_data_resources(project_id, idno, dta_path, ME_API_KEY, row)
 
-    # # 6 publish project
+    # 6 publish project
     publish <- publish_project(project_id, ME_API_KEY, catalog_connection_id = CATALOG_CONN_ID)
     if (publish$success) {
         cat("Published:", paste0("https://microdatalibqa.worldbank.org/index.php/catalog/study/", idno), "\n")
@@ -113,11 +115,11 @@ if (is_databricks()) {
 
     # 7 update _ingestion_metadata table and delete json file if publish succeeded
     if (isTRUE(publish$success)) {
-      update_metadata(fname_base)
+      update_metadata(idno)
       file.remove(jfile)
       message("Deleted json file: ", jfile)
     } else {
-      message("Skipping metadata update (publish failed) for: ", fname_base)
+      message("Skipping metadata update (publish failed) for: ", idno)
     }
     message("Dataset processing complete")
   

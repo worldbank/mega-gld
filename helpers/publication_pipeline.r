@@ -307,7 +307,7 @@ publish_project <- function(project_id, ME_API_KEY, catalog_connection_id, publi
     options              = list(
       overwrite = "yes",
       published = 1,
-      access_policy = "licensed",
+      access_policy = "direct",
       repositoryid = "GLD"
     )
   )
@@ -331,9 +331,6 @@ publish_project <- function(project_id, ME_API_KEY, catalog_connection_id, publi
     cat("max_attempts: ",          max_attempts)
   }
 
-  if (status_ok) {
-    cat("Dataset published successfully: ", project_id)
-  }
 
   list(
     url           = url,
