@@ -11,8 +11,16 @@ library(DBI)
 
 # COMMAND ----------
 
+# MAGIC %run "./ai_description"
+
+# COMMAND ----------
+
 if (!exists("is_databricks")) {
   source("helpers/config.r")
+}
+
+if (!exists("get_ai_descriptions")) {
+  source("helpers/ai_description.r")
 }
 
 # COMMAND ----------
@@ -22,15 +30,30 @@ if (!exists("is_databricks")) {
 
 # COMMAND ----------
 
+# Retries a function call up to max_attempts times, waiting wait_secs between each
+with_retry <- function(f, max_attempts = 3, wait_secs = 60) {
+  for (attempt in seq_len(max_attempts)) {
+    result <- tryCatch(f(), error = function(e) e)
+    if (!inherits(result, "error")) return(result)
+    if (attempt < max_attempts) {
+      message(sprintf("Attempt %d/%d failed: %s — retrying in %ds...",
+                      attempt, max_attempts, conditionMessage(result), wait_secs))
+      Sys.sleep(wait_secs)
+    }
+  }
+  stop(sprintf("All %d attempts failed: %s", max_attempts, conditionMessage(result)))
+}
+
 # This function creates an project in the Metadata Editor by uploading the json file
 create_project <- function(json_data, ME_API_KEY){
   url <- paste0(METADATA_API_BASE, "editor/create/survey")
-  resp <- httr::POST(
+  resp <- with_retry(function() httr::POST(
     url,
     httr::add_headers(`X-API-KEY` = ME_API_KEY),
+    httr::timeout(60),
     body = json_data,
     encode = "json"
-  )
+  ))
   
   parsed <- httr::content(resp, as = "parsed", encoding = "UTF-8")
   
@@ -51,16 +74,17 @@ upload_microdata_file <- function(project_id, file_path, ME_API_KEY) {
   zipfile   <- make_zip(zipname, file_path, dirname(file_path))
 
   url <- paste0(METADATA_API_BASE, "jobs/import_microdata/", project_id)
-  resp <- httr::POST(
+  resp <- with_retry(function() httr::POST(
     url,
     httr::add_headers(`X-API-Key` = ME_API_KEY),
+    httr::timeout(300),
     body = list(
       file       = httr::upload_file(zipfile),
       overwrite  = 0,
       store_data = "store"
     ),
     encode = "multipart"
-  )
+  ))
 
   if (httr::status_code(resp) >= 300) {
     message("Microdata upload failed: ", httr::content(resp, as = "text", encoding = "UTF-8"))
@@ -76,17 +100,14 @@ create_resource <- function(project_id, resource_body, file_path, ME_API_KEY) {
     resource_body,
     list(file = httr::upload_file(file_path))
   )
-  resp <- httr::POST(
+  resp <- with_retry(function() httr::POST(
     url,
     httr::add_headers(`X-API-KEY` = ME_API_KEY),
+    httr::timeout(120),
     body   = body,
     encode = "multipart"
-  )
+  ))
   
-  if (httr::status_code(resp) >= 300) {
-    message("Resource creation failed: ", httr::content(resp, as = "text", encoding = "UTF-8"))
-    return(NA)
-  }
   parsed <- httr::content(resp, as = "parsed")
   if (!is.null(parsed$id)) parsed$id else TRUE
 }
@@ -234,11 +255,12 @@ log_resource <- function(kind, res, idno) {
 }
 
 
+
 upload_resource <- function(project_id, file_path, resource_body,
                             ME_API_KEY, label, idno) {
   res <- create_resource(project_id, resource_body,
                          file_path = file_path, ME_API_KEY)
-  log_resource(label, res, idno)
+  log_resource(paste0(label, " (", basename(file_path), ")"), res, idno)
   res
 }
 

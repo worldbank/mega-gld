@@ -203,7 +203,7 @@ make_mdl_json <- function(row, countries_names) {
           abstract_tail
         ),
 
-        coll_dates <- list(
+        coll_dates = list(
           list(
             start = start,
             end   = end,

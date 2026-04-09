@@ -31,10 +31,7 @@ if (is_databricks()) {
   
   
   metadata <- tbl(sc, METADATA_TABLE) %>% collect() 
-  
-  set.seed(547859)
-  metadata <- metadata %>% filter(!is.na(classification)) %>% slice_sample(n = 5)
-  
+    
   countries_names <- fetch_countries_names(sc)
   survey <- fetch_survey_metadata(ROOT_DIR)
 

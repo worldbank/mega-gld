@@ -22,12 +22,15 @@ library(readxl)
 
 # COMMAND ----------
 
+# MAGIC %run "./helpers/ai_description"
+
+# COMMAND ----------
+
 if (!exists("is_databricks")) {
   source("helpers/config.r")
-}
-
-if (!exists("create_project")) {
   source("helpers/publication_pipeline.r")
+  source("helpers/json_pipeline.r")
+  source("helpers/ai_description.r")
 }
 
 # COMMAND ----------
@@ -39,7 +42,8 @@ if (is_databricks()) {
   path_survey <- file.path(ROOT_DIR, "survey-metadata.xlsx")
   survey <- read_excel(path_survey)
   
-  countries_names <- fetch_countries_names(sc)
+  countries_names <- fetch_countries_names(sc) 
+  countries_names <- countries_names %>% rename(nation_name = name)
 
   merged_df <- left_join(metadata, survey, by = c("survey", "country")) %>%
     left_join(countries_names, by = c("country" = "code"))
@@ -47,6 +51,8 @@ if (is_databricks()) {
 
   json_files <- list.files(JSON_DIR, pattern="\\.json$", full.names=TRUE)
   json_files <- json_files[!grepl("HARMONIZED", json_files)]
+
+  ai_token <- get_azure_openai_token()
 
   results <- lapply(json_files, function(jfile){
     message("-----------------------------")
@@ -87,19 +93,26 @@ if (is_databricks()) {
     
     # technical docs or top-level Doc: upload individually
     tech_dir  <- path(doc_dir, "Technical")
-    tech_source <- if (dir_exists(tech_dir)) tech_dir else if (dir_exists(doc_dir)) doc_dir else NULL
+    tech_exists <- dir_exists(tech_dir)
+    tech_source <- if (tech_exists) tech_dir else if (dir_exists(doc_dir)) doc_dir else NULL
     if (!is.null(tech_source)) {
-      files <- dir_ls(tech_source, recurse = TRUE, type = "file")
+      files <- dir_ls(tech_source, recurse = tech_exists, type = "file")
       lapply(files, function(fp) {
-        resource_body <- list(
-          dctype      = "doc/tec",
-          dcformat    = mime::guess_type(fp),
-          title       = tools::file_path_sans_ext(basename(fp)),
-          author      = author,
-          description = basename(fp)
-        )
-        upload_resource(project_id, fp, resource_body,
-                        ME_API_KEY, "Technical documentation", idno)
+
+          description <- tryCatch(
+              get_ai_description(fp, ai_token),
+              error = function(e) basename(fp))
+
+          resource_body <- list(
+            dctype      = "doc/tec",
+            dcformat    = mime::guess_type(fp),
+            title       = description,
+            author      = author,
+            filename = basename(fp),
+            description = description
+          )
+          upload_resource(project_id, fp, resource_body,
+                          ME_API_KEY, "Technical documentation", idno)
       })
     }
 
@@ -113,9 +126,8 @@ if (is_databricks()) {
         resource_body <- list(
           dctype      = "doc/qst",
           dcformat    = "application/zip",
-          title       = "Questionnaires",
+          title       = "Survey Questionnaire",
           author      = author,
-          file        = zipname,
           filename    = zipname,
           description = paste0(zipname, " includes the following files: ",
                                paste(basename(quest_files), collapse = ", "))
@@ -137,6 +149,7 @@ if (is_databricks()) {
           dcformat    = "application/zip",
           title       = "Additional Data",
           author      = author,
+          filename    = zipname,
           description = paste0(zipname, " includes the following files: ",
                                paste(basename(data_files), collapse = ", "))
         )
@@ -154,6 +167,7 @@ if (is_databricks()) {
         title       = paste0("Stata Program for ", row$survey_extended, " ", row$year,
                              ", Global Labour Database Harmonized Dataset"),
         author      = "Economic Policy - Growth and Jobs Unit",
+        filename = basename(do_path),
         description = "Stata Program for GLD Harmonized Data"
       )
       upload_resource(project_id, do_path, resource_body,
@@ -168,15 +182,15 @@ if (is_databricks()) {
         cat("Publish FAILED for", idno, "\n")
     }
 
-    # 5 update _ingestion_metadata table and delete json file if publish succeeded
-    if (isTRUE(publish$success)) {
-      update_metadata(idno)
-      file.remove(jfile)
-      message("Deleted json file: ", jfile)
-    } else {
-      message("Skipping metadata update (publish failed) for: ", idno)
-    }
-    message("Dataset processing complete")
+    # # 5 update _ingestion_metadata table and delete json file if publish succeeded
+    # if (isTRUE(publish$success)) {
+    #   update_metadata(idno)
+    #   file.remove(jfile)
+    #   message("Deleted json file: ", jfile)
+    # } else {
+    #   message("Skipping metadata update (publish failed) for: ", idno)
+    # }
+    # message("Dataset processing complete")
   
   })
 }
