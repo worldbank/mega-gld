@@ -11,7 +11,6 @@ library(readxl)
 # COMMAND ----------
 
 # MAGIC %run "./helpers/config"
-# MAGIC
 
 # COMMAND ----------
 
@@ -27,7 +26,7 @@ if (!exists("is_databricks")) {
   source("helpers/config.r")
 }
 
-if (!exists("create_dataset")) {
+if (!exists("create_project")) {
   source("helpers/publication_pipeline.r")
 }
 
@@ -71,40 +70,97 @@ if (is_databricks()) {
     }
   
     # 1 create dataset
-    project_id <- create_dataset(json_obj, ME_API_KEY)
+    project_id <- create_project(json_obj, ME_API_KEY)
     if (is.na(project_id)) {return(NULL)}
-    message("Dataset created, project_id = ", project_id)
+    message("Project created, project_id = ", project_id)
 
     # 2 get and upload file
     dta_path <- row$dta_path[1] 
     file_id <- upload_microdata_file(project_id, dta_path, ME_API_KEY)
     if (is.na(file_id)) return(NULL)
-    message("Dataset uploaded, file_id = ", file_id)
+    message("Dataset uploaded to project, file_id = ", file_id)
     
-    # 3 upload doc resources
-    upload_docs <- handle_doc_resources(project_id, idno, dta_path, ME_API_KEY, row)
-
-    # 4 add do file as ext resources
-    do_path <- row$do_path[1]
-    if (!is.na(do_path) && nzchar(do_path)){
-  
-      title = paste0("Stata Program for ", row$survey_extended, " ", row$year, " ,Global Labour Database Harmonized Dataset")
-      resource_body <- list(
-        dctype = "prg",
-        dcformat = "text/plain",
-        title = title,
-        author = "Economic Policy - Growth and Jobs Unit",
-        description = "Stata Program for GLD Harmonized Data"
-      )
-
-      res_id <- create_resource(project_id, resource_body, file_path = do_path, ME_API_KEY)
-      log_resource("Do file", res_id, idno)
+    # 3 upload external resources
+    author    <- get_author(row)
+    doc_root  <- path_dir(path_dir(path_dir(dta_path)))
+    doc_dir   <- path(doc_root, "Doc")
+    
+    # technical docs or top-level Doc: upload individually
+    tech_dir  <- path(doc_dir, "Technical")
+    tech_source <- if (dir_exists(tech_dir)) tech_dir else if (dir_exists(doc_dir)) doc_dir else NULL
+    if (!is.null(tech_source)) {
+      files <- dir_ls(tech_source, recurse = TRUE, type = "file")
+      lapply(files, function(fp) {
+        resource_body <- list(
+          dctype      = "doc/tec",
+          dcformat    = mime::guess_type(fp),
+          title       = tools::file_path_sans_ext(basename(fp)),
+          author      = author,
+          description = basename(fp)
+        )
+        upload_resource(project_id, fp, resource_body,
+                        ME_API_KEY, "Technical documentation", idno)
+      })
     }
 
-    # 5 upload additional data
-    upload_data <- handle_additional_data_resources(project_id, idno, dta_path, ME_API_KEY, row)
+    # questionnaires: zipped
+    quest_dir <- path(doc_dir, "Questionnaires")
+    if (dir_exists(quest_dir)) {
+      quest_files <- dir_ls(quest_dir, recurse = TRUE, type = "file")
+      if (length(quest_files) > 0) {
+        zipname <- paste0("Questionnaires_", idno, ".zip")
+        zipfile <- make_zip(zipname, quest_files, quest_dir)
+        resource_body <- list(
+          dctype      = "doc/qst",
+          dcformat    = "application/zip",
+          title       = "Questionnaires",
+          author      = author,
+          file        = zipname,
+          filename    = zipname,
+          description = paste0(zipname, " includes the following files: ",
+                               paste(basename(quest_files), collapse = ", "))
+        )
+        upload_resource(project_id, zipfile, resource_body,
+                        ME_API_KEY, "Questionnaire", idno)
+      }
+    }
 
-    # 6 publish project
+    # additional data: zipped
+    data_dir <- path(path_dir(path_dir(dta_path)), "Additional Data")
+    if (dir_exists(data_dir)) {
+      data_files <- dir_ls(data_dir, recurse = TRUE, type = "file")
+      if (length(data_files) > 0) {
+        zipname <- paste0("Additional_Data_", idno, ".zip")
+        zipfile <- make_zip(zipname, data_files, data_dir)
+        resource_body <- list(
+          dctype      = "dat/oth",
+          dcformat    = "application/zip",
+          title       = "Additional Data",
+          author      = author,
+          description = paste0(zipname, " includes the following files: ",
+                               paste(basename(data_files), collapse = ", "))
+        )
+        upload_resource(project_id, zipfile, resource_body,
+                        ME_API_KEY, "Additional data", idno)
+      }
+    }
+
+    # do file
+    do_path <- row$do_path[1]
+    if (!is.na(do_path) && nzchar(do_path)) {
+      resource_body <- list(
+        dctype      = "prg",
+        dcformat    = "text/plain",
+        title       = paste0("Stata Program for ", row$survey_extended, " ", row$year,
+                             ", Global Labour Database Harmonized Dataset"),
+        author      = "Economic Policy - Growth and Jobs Unit",
+        description = "Stata Program for GLD Harmonized Data"
+      )
+      upload_resource(project_id, do_path, resource_body,
+                      ME_API_KEY, "Do file", idno)
+    }
+
+    # 4 publish project
     publish <- publish_project(project_id, ME_API_KEY, catalog_connection_id = CATALOG_CONN_ID)
     if (publish$success) {
         cat("Published:", paste0("https://microdatalibqa.worldbank.org/index.php/catalog/study/", idno), "\n")
@@ -112,7 +168,7 @@ if (is_databricks()) {
         cat("Publish FAILED for", idno, "\n")
     }
 
-    # 7 update _ingestion_metadata table and delete json file if publish succeeded
+    # 5 update _ingestion_metadata table and delete json file if publish succeeded
     if (isTRUE(publish$success)) {
       update_metadata(idno)
       file.remove(jfile)
