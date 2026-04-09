@@ -1,5 +1,4 @@
 # Databricks notebook source
-#library(AzureAuth)
 library(httr)
 library(jsonlite)
 
