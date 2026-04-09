@@ -69,7 +69,7 @@ get_ai_description <- function(file_path, token) {
     body = jsonlite::toJSON(
       list(
         messages = list(
-          list(role = "system", content = "You are an AI assistant that writes concise metadata descriptions for research datasets."),
+          list(role = "system", content = "You are an AI assistant that writes concise metadata descriptions for documents."),
           list(role = "user",   content = prompt)
         )
       ),
