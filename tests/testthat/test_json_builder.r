@@ -49,7 +49,7 @@ test_that("mandatory idno and title exist", {
 
   js <- make_mdl_json(row, countries)
 
-  expect_true(nzchar(js$idno))
+  expect_equal(js$idno, row$filename)
   expect_true(nzchar(js$study_desc$title_statement$title))
 })
 
@@ -111,7 +111,8 @@ test_that("version uses M/A when M_version and A_version exist", {
 
   js <- make_mdl_json(row, countries)
 
-  expect_equal(js$doc_desc$version_statement$version, "M02A05")
+  expect_equal(js$doc_desc$version_statement$version, "Version 1")
+  expect_true(grepl("Master data version 2 - Harmonized data version 5", js$study_desc$version_statement$version))
 })
 
 
@@ -119,11 +120,12 @@ test_that("version uses V when V_version column exists", {
   countries <- tibble(code = "USA", name = "United States")
 
   row <- make_minimal_row() %>%
-    dplyr::select(-M_version, -A_version) %>%   
-    dplyr::mutate(V_version = 4) 
+    dplyr::select(-M_version, -A_version) %>%
+    dplyr::mutate(V_version = 4)
 
   js <- make_mdl_json(row, countries)
 
-  expect_equal(js$doc_desc$version_statement$version, "V04")
+  expect_equal(js$doc_desc$version_statement$version, "Version 1")
+  expect_true(grepl("Version 4", js$study_desc$version_statement$version))
 })
 

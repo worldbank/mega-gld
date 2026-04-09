@@ -183,6 +183,21 @@ test_that("compute_json_inputs sets survey_clean to text before first hyphen", {
 })
 
 
+test_that("compute_json_inputs drops rows where classification is the string NA", {
+  metadata <- tibble::tibble(
+    country = c("USA", "KEN"),
+    survey  = c("LFS-foo", "DHS-2020"),
+    published = c(FALSE, FALSE),
+    classification = c("NA", "Official Use")
+  )
+
+  out <- compute_json_inputs(metadata)
+
+  expect_equal(nrow(out), 1)
+  expect_equal(out$survey_clean, "DHS")
+})
+
+
 test_that("compute_json_inputs works without survey and valid_pairs_df", {
   metadata <- tibble::tibble(
     country = c("USA", "KEN"),
@@ -261,7 +276,7 @@ test_that("write_json_files writes one JSON per row with expected filename", {
   expect_equal(calls$make, 2L)
   expect_equal(
     calls$write,
-    file.path(out_dir, c("DDI_USA_2020_LFS_V01_WB.json", "DDI_KEN_2019_DHS_V01_WB.json"))
+    file.path(out_dir, c("USA_2020_LFS_V01.json", "KEN_2019_DHS_V01.json"))
   )
 })
 
@@ -304,6 +319,6 @@ test_that("write_json_files warns and continues when make_mdl_json errors", {
     regexp = "FAILED to create JSON for BAD_ONE"
   )
 
-  expect_equal(written, c("DDI_OK_ONE_WB.json", "DDI_OK_TWO_WB.json"))
+  expect_equal(written, c("OK_ONE.json", "OK_TWO.json"))
 })
 
