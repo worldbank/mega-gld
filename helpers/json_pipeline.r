@@ -36,8 +36,8 @@ compute_json_inputs <- function(metadata, survey = NULL, valid_pairs_df = NULL) 
   out <- metadata %>%
     filter(
       published == FALSE,
-      classification != "NA",
-      !is.na(classification), 
+      !is.na(classification),
+      trimws(classification) != "NA",
       trimws(classification) != ""
     )
 
