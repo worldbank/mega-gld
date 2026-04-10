@@ -6,8 +6,20 @@ suppressPackageStartupMessages({
 
 # COMMAND ----------
 
-source("../../helpers/stacking_functions.r")
-source("../../helpers/stacking_schema.r")
+# MAGIC %run "../../helpers/stacking_functions"
+
+# COMMAND ----------
+
+# MAGIC %run "../../helpers/stacking_schema"
+
+# COMMAND ----------
+
+if (!exists("compute_stacking")) {
+  repo_root <- normalizePath(file.path("..", ".."), mustWork = TRUE)
+  withr::local_dir(repo_root)
+  source(file.path(repo_root, "helpers", "stacking_functions.r"))
+  source(file.path(repo_root, "helpers", "stacking_schema.r"))
+}
 
 # COMMAND ----------
 

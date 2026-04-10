@@ -1,5 +1,8 @@
 # Databricks notebook source
 install.packages("testthat")
+
+# COMMAND ----------
+
 library(testthat)
 
 # COMMAND ----------
@@ -51,12 +54,16 @@ if (!exists("is_databricks")) {
 
 # COMMAND ----------
 
-# MAGIC %run ./testthat/test_txt_pipeline
+# MAGIC %run ./testthat/test_parsing_integration
+
+# COMMAND ----------
+
+# MAGIC %run ./testthat/test_stacking_flag
+
+# COMMAND ----------
+
+# MAGIC %run ./testthat/test_txt_parsing
 
 # COMMAND ----------
 
 # MAGIC %run ./testthat/test_stacking_functions
-
-# COMMAND ----------
-
-
