@@ -144,10 +144,6 @@ publish_project<- function(project_id, ME_API_KEY, catalog_connection_id, publis
   if (!status_ok) {
     cat("Dataset publish failed: ", jsonlite::toJSON(parsed, auto_unbox = TRUE))
     cat("project_id: ",            project_id)
-    cat("catalog_connection_id: ", catalog_connection_id)
-    cat("overwrite: ",             overwrite)
-    cat("priority: ",              priority)
-    cat("max_attempts: ",          max_attempts)
   }
 
 
