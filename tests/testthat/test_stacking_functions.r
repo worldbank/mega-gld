@@ -14,7 +14,7 @@ suppressPackageStartupMessages({
 
 # COMMAND ----------
 
-if (!exists("compute_stacking")) {
+if (!exists("validate_metadata_inputs")) {
   repo_root <- normalizePath(file.path("..", ".."), mustWork = TRUE)
   withr::local_dir(repo_root)
   source(file.path(repo_root, "helpers", "stacking_functions.r"))
