@@ -17,6 +17,7 @@ if (!exists("is_databricks")) {
 get_azure_openai_token <- function() {
   resp <- httr::POST(
     paste0("https://login.microsoftonline.com/", GPT_TENANT_ID, "/oauth2/v2.0/token"),
+    httr::timeout(60),
     body = list(
       grant_type    = "client_credentials",
       client_id     = GPT_CLIENT_ID,
@@ -66,6 +67,7 @@ get_ai_description <- function(file_path, token) {
       Authorization  = paste("Bearer", token),
       `Content-Type` = "application/json"
     ),
+    httr::timeout(60),
     body = jsonlite::toJSON(
       list(
         messages = list(

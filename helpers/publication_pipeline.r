@@ -108,6 +108,11 @@ create_resource <- function(project_id, resource_body, file_path, ME_API_KEY) {
     encode = "multipart"
   ))
   
+  if (httr::status_code(resp) >= 300) {
+    message("Resource creation failed: ", httr::content(resp, as = "text", encoding = "UTF-8"))
+    return(NA)
+  }
+  
   parsed <- httr::content(resp, as = "parsed")
   if (!is.null(parsed$id)) parsed$id else TRUE
 }
