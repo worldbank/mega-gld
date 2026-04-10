@@ -182,15 +182,15 @@ if (is_databricks()) {
         cat("Publish FAILED for", idno, "\n")
     }
 
-    # # 5 update _ingestion_metadata table and delete json file if publish succeeded
-    # if (isTRUE(publish$success)) {
-    #   update_metadata(idno)
-    #   file.remove(jfile)
-    #   message("Deleted json file: ", jfile)
-    # } else {
-    #   message("Skipping metadata update (publish failed) for: ", idno)
-    # }
-    # message("Dataset processing complete")
+    # 5 update _ingestion_metadata table and delete json file if publish succeeded
+    if (isTRUE(publish$success)) {
+      update_metadata(idno)
+      file.remove(jfile)
+      message("Deleted json file: ", jfile)
+    } else {
+      message("Skipping metadata update (publish failed) for: ", idno)
+    }
+    message("Dataset processing complete")
   
   })
 }
