@@ -68,10 +68,12 @@ create_project <- function(json_data, ME_API_KEY){
 
 # This function uploads the microdata file to the project created using create_project(), and generates statistics for microdata variables
 upload_microdata_file <- function(project_id, file_path, ME_API_KEY) {
-  stata_ver <- get_stata_version(file_path)
-  base_name <- tools::file_path_sans_ext(basename(file_path))
-  zipname   <- paste0(base_name, "_Stata", stata_ver, ".zip")
-  zipfile   <- make_zip(zipname, file_path, dirname(file_path))
+  stata_ver  <- get_stata_version(file_path)
+  base_name  <- tools::file_path_sans_ext(basename(file_path))
+  new_name   <- paste0(base_name, "_Stata", stata_ver, ".dta")
+  upload_path <- file.path(tempdir(), new_name)
+  file.copy(file_path, upload_path, overwrite = TRUE)
+  on.exit(unlink(upload_path))
 
   url <- paste0(METADATA_API_BASE, "jobs/import_microdata/", project_id)
   resp <- with_retry(function() httr::POST(
@@ -79,7 +81,7 @@ upload_microdata_file <- function(project_id, file_path, ME_API_KEY) {
     httr::add_headers(`X-API-Key` = ME_API_KEY),
     httr::timeout(300),
     body = list(
-      file       = httr::upload_file(zipfile),
+      file       = httr::upload_file(upload_path),
       overwrite  = 0,
       store_data = "store"
     ),
