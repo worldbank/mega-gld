@@ -93,7 +93,7 @@ upload_microdata_file <- function(project_id, file_path, ME_API_KEY) {
   httr::content(resp, as = "parsed")$file_id
 }
 
-# This function creates an external resource in 
+# This function creates an external resource in the Metadata Editor project by uploading a file through the Metadata API resources endpoint
 create_resource <- function(project_id, resource_body, file_path, ME_API_KEY) {
   url <- paste0(METADATA_API_BASE, "resources/", project_id)
   body <- c(
