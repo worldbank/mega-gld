@@ -1,6 +1,8 @@
 # Databricks notebook source
 library(httr)
 library(jsonlite)
+library(readxl)
+
 
 # COMMAND ----------
 
@@ -39,7 +41,13 @@ extract_file_text <- function(path, max_chars = 300) {
   ext <- tolower(tools::file_ext(path))
   text <- tryCatch({
     if (ext == "pdf") {
-      pdftools::pdf_text(path)[1]  # first page only
+      pdftools::pdf_text(path)[1]
+    } else if (ext %in% c("xlsx", "xls")) {
+      sheet <- readxl::read_excel(path, n_max = 10)
+      paste(
+        paste(names(sheet), collapse = " "),
+        paste(apply(sheet, 1, paste, collapse = " "), collapse = " ")
+      )
     } else {
       paste(readLines(path, n = 50, warn = FALSE), collapse = " ")
     }
