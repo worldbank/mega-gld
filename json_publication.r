@@ -82,7 +82,7 @@ if (is_databricks()) {
 
     # 2 get and upload file
     dta_path <- row$dta_path[1]
-    file_description <- paste0("Harmonized Dataset of the ", row$year, " ", row$name, " ", row$survey_extended) 
+    file_description <- paste0("Harmonized Dataset of the ", row$year, " ", row$nation_name, " ", row$survey_extended) 
     file_id <- upload_microdata_file(project_id, dta_path, ME_API_KEY, description = file_description)
     if (is.na(file_id)) return(NULL)
     message("Dataset uploaded to project, file_id = ", file_id)
@@ -119,6 +119,7 @@ if (is_databricks()) {
 
     # questionnaires: zipped
     quest_dir <- path(doc_dir, "Questionnaires")
+    quest_description <- paste0("Survey Questionnaire(s) for the ", row$year, " ", row$nation_name, " ", row$survey_extended) 
     if (dir_exists(quest_dir)) {
       quest_files <- dir_ls(quest_dir, recurse = TRUE, type = "file")
       if (length(quest_files) > 0) {
@@ -130,8 +131,7 @@ if (is_databricks()) {
           title       = "Survey Questionnaire",
           author      = author,
           filename    = zipname,
-          description = paste0(zipname, " includes the following files: ",
-                               paste(basename(quest_files), collapse = ", "))
+          description = quest_description
         )
         upload_resource(project_id, zipfile, resource_body,
                         ME_API_KEY, "Questionnaire", idno)
@@ -140,6 +140,7 @@ if (is_databricks()) {
 
     # additional data: zipped
     data_dir <- path(path_dir(path_dir(dta_path)), "Additional Data")
+    add_data_description <- paste0("Additional data for the ", row$year, " ", row$nation_name, " ", row$survey_extended) 
     if (dir_exists(data_dir)) {
       data_files <- dir_ls(data_dir, recurse = TRUE, type = "file")
       if (length(data_files) > 0) {
@@ -151,8 +152,7 @@ if (is_databricks()) {
           title       = "Additional Data",
           author      = author,
           filename    = zipname,
-          description = paste0(zipname, " includes the following files: ",
-                               paste(basename(data_files), collapse = ", "))
+          description = add_data_description
         )
         upload_resource(project_id, zipfile, resource_body,
                         ME_API_KEY, "Additional data", idno)
@@ -165,11 +165,10 @@ if (is_databricks()) {
       resource_body <- list(
         dctype      = "prg",
         dcformat    = "text/plain",
-        title       = paste0("Stata Program for ", row$survey_extended, " ", row$year,
-                             ", Global Labour Database Harmonized Dataset"),
+        title       = "Stata Program for GLD Harmonized Data",
         author      = "Economic Policy - Growth and Jobs Unit",
         filename = basename(do_path),
-        description = "Stata Program for GLD Harmonized Data"
+        description = paste0("Stata Program for the ", row$year, " ", row$nation_name, " ", row$survey_extended, ", Global Labour Database Harmonized Dataset")
       )
       upload_resource(project_id, do_path, resource_body,
                       ME_API_KEY, "Do file", idno)

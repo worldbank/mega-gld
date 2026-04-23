@@ -134,7 +134,7 @@ publish_project<- function(project_id, ME_API_KEY, catalog_connection_id, publis
     options              = list(
       overwrite = "yes",
       published = 1,
-      access_policy = "direct",
+      access_policy = "public",
       repositoryid = "GLD"
     )
   )
