@@ -1,6 +1,6 @@
 -- Databricks notebook source
 -- TODO: Replace prd_mega.gld with prd_mega.sgld48 once the service principal provision is complete
-CREATE TABLE IF NOT EXISTS prd_mega.gld.gld_availability (
+CREATE TABLE IF NOT EXISTS prd_mega.sgld48.gld_availability (
     country STRING,
     year INT,
     survey STRING,
@@ -10,7 +10,7 @@ USING DELTA;
 
 -- COMMAND ----------
 
-MERGE INTO prd_mega.gld.gld_availability AS target
+MERGE INTO prd_mega.sgld48.gld_availability AS target
 USING (
     SELECT country, year, survey, classification
     FROM (
