@@ -28,7 +28,7 @@ make_mdl_json <- function(row, countries_names) {
     ifelse(is.na(x) | x == "" | x == "NA", "", x)
   }
 
-  date_mmddyyyy <- function(x) format(as.Date(x), "%m/%d/%Y")
+  date_mmddyyyy <- function(x) format(as.Date(x), "%Y-%m-%d")
   date_year     <- function(x) format(as.Date(x), "%Y")
   date_ym       <- function(x) format(as.Date(x), "%Y-%m")
 
@@ -49,11 +49,9 @@ make_mdl_json <- function(row, countries_names) {
   # --- other repeatables ---
   # helpers for wide-long table create V_version column but not M_version and A-version columns which are in _ingestion_metadata
   if ("M_version" %in% names(row) && "A_version" %in% names(row)) {
-    m_padded <- paste0("M", sprintf("%02d", as.integer(row$M_version)))
-    a_padded <- paste0("A", sprintf("%02d", as.integer(row$A_version)))
-    version_padded <- paste0(m_padded, a_padded)
+    version_full <- paste0("Master data version ",as.integer(row$M_version), " - Harmonized data version ", as.integer(row$A_version))
   } else if ("V_version" %in% names(row)) {
-    version_padded <- paste0("V", sprintf("%02d", as.integer(row$V_version)))
+    version_full <- paste0("Version ",as.integer(row$V_version))
   }
   
   idno_val <- paste0("DDI_", row$filename, "_WB")
@@ -93,7 +91,7 @@ make_mdl_json <- function(row, countries_names) {
 
   # --- populate the json ---
   json <- list(
-    idno = idno_val,
+    idno = row$filename,
     collection_ids = list(REPOSITORY_ID),
     template_uid = "microdata-system-en",
     type = "microdata",
@@ -101,7 +99,7 @@ make_mdl_json <- function(row, countries_names) {
 
     doc_desc = list(
       title = row$filename,
-      idno  = idno_val,
+      idno  = paste0("DDI_", row$filename),
       producers = list(
         list(
           name = GLD_TEAM_NAME,
@@ -118,7 +116,7 @@ make_mdl_json <- function(row, countries_names) {
       ),
       prod_date = prod_mmddyyyy,
       version_statement = list(
-        version = version_padded,
+        version = "Version 1",
         version_date = prod_mmddyyyy,
         version_resp = GLD_TEAM_NAME,
         version_notes = safe(row$version_label)
@@ -127,7 +125,7 @@ make_mdl_json <- function(row, countries_names) {
 
     study_desc = list(
       title_statement = list(
-        idno = idno_val,
+        idno = row$filename,
         title = long_title,
         alternate_title = trimws(paste0(safe(row$survey_clean), " GLD ", row$year))
       ),
@@ -159,7 +157,7 @@ make_mdl_json <- function(row, countries_names) {
           list(
             name = WB_AFFIL,
             abbreviation = "",
-            role = ""
+            role = ROLE_PRODUCERS
           )
         )
       ),
@@ -188,8 +186,7 @@ make_mdl_json <- function(row, countries_names) {
       ),
 
       version_statement = list(
-        version = paste0("Version ",version_padded,
-                         ": Harmonized, anonymized dataset for", row$classification, " distribution."),
+        version = paste0(version_full, ": Harmonized, anonymized dataset for ", row$classification, " distribution."),
         version_date = prod_ym,
         version_notes = safe(row$version_label)
       ),
@@ -206,7 +203,7 @@ make_mdl_json <- function(row, countries_names) {
           abstract_tail
         ),
 
-        coll_dates <- list(
+        coll_dates = list(
           list(
             start = start,
             end   = end,

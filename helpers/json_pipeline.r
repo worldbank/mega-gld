@@ -36,7 +36,8 @@ compute_json_inputs <- function(metadata, survey = NULL, valid_pairs_df = NULL) 
   out <- metadata %>%
     filter(
       published == FALSE,
-      !is.na(classification), 
+      !is.na(classification),
+      trimws(classification) != "NA",
       trimws(classification) != ""
     )
 
@@ -64,7 +65,7 @@ write_json_files <- function(df, countries_names, json_dir) {
 
     tryCatch({
       json_obj <- make_mdl_json(row, countries_names)
-      out_path <- file.path(json_dir, paste0("DDI_", row$filename, "_WB.json"))
+      out_path <- file.path(json_dir, paste0(row$filename, ".json"))
       write_json(json_obj, out_path, pretty = TRUE, auto_unbox = TRUE)
       message("JSON created for ", row$filename)
     }, error = function(e) {

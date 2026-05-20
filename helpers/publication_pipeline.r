@@ -11,21 +11,49 @@ library(DBI)
 
 # COMMAND ----------
 
+# MAGIC %run "./ai_description"
+
+# COMMAND ----------
+
 if (!exists("is_databricks")) {
   source("helpers/config.r")
 }
 
+if (!exists("get_ai_description_tech")) {
+  source("helpers/ai_description.r")
+}
+
 # COMMAND ----------
 
-## This function creates a project in the Metadata Editor by uploading the json file
-create_dataset <- function(json_data, ME_API_KEY){
+# MAGIC %md
+# MAGIC #### Functions handling API calls
+
+# COMMAND ----------
+
+# Retries a function call up to max_attempts times, waiting wait_secs between each
+with_retry <- function(f, max_attempts = 3, wait_secs = 60) {
+  for (attempt in seq_len(max_attempts)) {
+    result <- tryCatch(f(), error = function(e) e)
+    if (!inherits(result, "error")) return(result)
+    if (attempt < max_attempts) {
+      message(sprintf("Attempt %d/%d failed: %s — retrying in %ds...",
+                      attempt, max_attempts, conditionMessage(result), wait_secs))
+      Sys.sleep(wait_secs)
+    }
+  }
+  stop(sprintf("All %d attempts failed: %s", max_attempts, conditionMessage(result)))
+}
+
+# This function creates an project in the Metadata Editor by uploading the json file
+create_project <- function(json_data, ME_API_KEY){
   url <- paste0(METADATA_API_BASE, "editor/create/survey")
-  resp <- httr::POST(
+  resp <- with_retry(function() httr::POST(
     url,
     httr::add_headers(`X-API-KEY` = ME_API_KEY),
+    httr::timeout(60),
     body = json_data,
     encode = "json"
-  )
+  ))
   
   parsed <- httr::content(resp, as = "parsed", encoding = "UTF-8")
   
@@ -37,264 +65,65 @@ create_dataset <- function(json_data, ME_API_KEY){
   parsed$id
 }
 
-## This function uploads the microdata file to the project created using create_dataset, and generates statistics for microdata variables
-upload_microdata_file <- function(project_id, file_path, ME_API_KEY){
+# This function uploads the microdata file to the project created using create_project(), and generates statistics for microdata variables
+upload_microdata_file <- function(project_id, file_path, ME_API_KEY, description = NULL) {
+  stata_ver  <- get_stata_version(file_path)
+  base_name  <- tools::file_path_sans_ext(basename(file_path))
+  new_name   <- paste0(base_name, "_Stata", stata_ver, ".dta")
+  upload_path <- file.path(tempdir(), new_name)
+  file.copy(file_path, upload_path, overwrite = TRUE)
+  on.exit(unlink(upload_path))
+
   url <- paste0(METADATA_API_BASE, "jobs/import_microdata/", project_id)
-  resp <- httr::POST(
+  body <- list(
+    file       = httr::upload_file(upload_path),
+    overwrite  = 0,
+    store_data = "store"
+  )
+  if (!is.null(description) && nzchar(trimws(description))) {
+    body$description <- description
+  }
+  resp <- with_retry(function() httr::POST(
     url,
     httr::add_headers(`X-API-Key` = ME_API_KEY),
-    body = list(
-      file = httr::upload_file(file_path),
-      overwrite = 0,
-      store_data = "store"
-    ),
+    httr::timeout(300),
+    body = body,
     encode = "multipart"
-  )
-  
+  ))
+
   if (httr::status_code(resp) >= 300) {
     message("Microdata upload failed: ", httr::content(resp, as = "text", encoding = "UTF-8"))
     return(NA)
   }
   httr::content(resp, as = "parsed")$file_id
-  
 }
 
-
-
-## This function uploads the microdata file to the project created using create_dataset, chunked
-upload_microdata_file_chunked <- function(project_id, file_path, ME_API_KEY, chunk_size_mb = 500) {
-  file_size <- file.info(file_path)$size
-  file_name <- basename(file_path)
-  upload_id <- paste0("upload_", project_id, "_", as.integer(Sys.time()))
-  
-  chunk_size_bytes <- chunk_size_mb * 1024 * 1024
-  total_chunks <- ceiling(file_size / chunk_size_bytes)
-  
-  message(sprintf("Uploading %s (%.2f GB) in %d chunks", file_name, file_size / 1024^3, total_chunks))
-  
-  con <- file(file_path, "rb")
-  on.exit(close(con))
-  
-  for (chunk_index in 0:(total_chunks - 1)) {
-    chunk_data <- readBin(con, "raw", n = chunk_size_bytes)
-    chunk_temp <- tempfile()
-    writeBin(chunk_data, chunk_temp)
-    
-    is_final <- as.integer(chunk_index == total_chunks - 1)
-    
-    url <- paste0(METADATA_API_BASE, "upload/", project_id)
-    resp <- httr::POST(
-      url,
-      httr::add_headers(
-        `X-API-KEY` = ME_API_KEY,
-        `X-Chunk-Index` = chunk_index,
-        `X-Total-Chunks` = total_chunks,
-        `X-Upload-ID` = upload_id,
-        `X-File-Name` = file_name,
-        `X-File-Size` = file_size,
-        `X-Is-Final-Chunk` = is_final
-      ),
-      body = list(chunk = httr::upload_file(chunk_temp)),
-      encode = "multipart"
-    )
-    
-    unlink(chunk_temp)
-    
-    if (httr::status_code(resp) >= 300) {
-      message("Chunk upload failed: ", httr::content(resp, as = "text", encoding = "UTF-8"))
-      return(NA)
-    }
-    
-    message(sprintf("Chunk %d/%d complete (%.1f%%)", 
-                    chunk_index + 1, total_chunks, 
-                    ((chunk_index + 1) / total_chunks) * 100))
-  }
-  
-  # Parse the final response to get file_id
-  parsed <- httr::content(resp, as = "parsed", encoding = "UTF-8")
-  
-  message("Upload complete")
-  
-  # Return file_id if available, otherwise NA
-  if (!is.null(parsed$file_id)) {
-    return(parsed$file_id)
-  } else {
-    message("Warning: No file_id returned from API")
-    return(NA)
-  }
-}
-
-
-## This function creates External Resources in the Metadata Editor project
+# This function creates an external resource in the Metadata Editor project by uploading a file through the Metadata API resources endpoint
 create_resource <- function(project_id, resource_body, file_path, ME_API_KEY) {
   url <- paste0(METADATA_API_BASE, "resources/", project_id)
   body <- c(
     resource_body,
     list(file = httr::upload_file(file_path))
   )
-  resp <- httr::POST(
+  resp <- with_retry(function() httr::POST(
     url,
     httr::add_headers(`X-API-KEY` = ME_API_KEY),
+    httr::timeout(120),
     body   = body,
     encode = "multipart"
-  )
+  ))
   
   if (httr::status_code(resp) >= 300) {
     message("Resource creation failed: ", httr::content(resp, as = "text", encoding = "UTF-8"))
     return(NA)
   }
+  
   parsed <- httr::content(resp, as = "parsed")
   if (!is.null(parsed$id)) parsed$id else TRUE
 }
 
-## This function creates zip files for external resources
-make_zip <- function(zipname, files_abs, root_dir) {
-  zipfile   <- file.path(tempdir(), zipname)
-  rel_files <- fs::path_rel(files_abs, start = root_dir)
-  zip::zip(zipfile, files = rel_files, root = root_dir)
-  zip_contents <- zip::zip_list(zipfile)$filename
-  message(sprintf("Created ZIP %s with %d files", basename(zipfile), length(zip_contents)))
-  message(sprintf("ZIP contents: %s", paste(zip_contents, collapse = ", ")))
-  zipfile
-}
 
-## This function handles logging of messages for external resources
-log_resource <- function(kind, res, idno) {
-  if (is.na(res)) {
-    message(kind, " resource creation failed for ", idno)
-  } else if (isTRUE(res)) {
-    message(kind, " resource created for ", idno, ", but no id returned")
-  } else {
-    message(kind, " resource created for ", idno, " (resource_id = ", res, ")")
-  }
-}
-
-## This function identifies technical documentation and questionnaires and uploads them as zipped files 
-handle_doc_resources <- function(project_id, idno, dta_path, ME_API_KEY, row) {
-  doc_root <- path_dir(path_dir(path_dir(dta_path)))
-  doc_dir  <- path(doc_root, "Doc")
-  
-  if (!dir_exists(doc_dir)) {
-    message("No Doc folder, skipping.")
-    return()
-  }
-  
-  tech_dir  <- path(doc_dir, "Technical")
-  quest_dir <- path(doc_dir, "Questionnaires")
-  tech_exists  <- dir_exists(tech_dir)
-  quest_exists <- dir_exists(quest_dir)
-  
-  author <- if (!is.null(row$producers_name) && !is.na(row$producers_name) && nzchar(trimws(row$producers_name))) {
-    row$producers_name
-  } else {
-    paste("National Statistical Offices of", row$nation_name)
-  }
-  
-  if (tech_exists) {
-    tech_files <- dir_ls(tech_dir, recurse = TRUE, type = "file")
-    
-    if (length(tech_files) > 0) {
-      zipname <- paste0("Technical_", idno, ".zip")
-      zipfile <- make_zip(zipname, tech_files, tech_dir)
-      
-      resource_body <- list(
-        dctype      = "doc/tec",
-        dcformat    = "application/zip",
-        title       = "Technical Documents",
-        author      = author,
-        description = paste0(zipname, " includes the following files: ", paste(basename(tech_files), collapse = ", "))
-      )
-      
-      res <- create_resource(project_id, resource_body, file_path = zipfile, ME_API_KEY)
-      log_resource("Technical documentation", res, idno)
-    }
-  }
-  
-  if (quest_exists) {
-    quest_files <- dir_ls(quest_dir, recurse = TRUE, type = "file")
-    
-    if (length(quest_files) > 0) {
-      zipname <- paste0("Questionnaires_", idno, ".zip")
-      zipfile <- make_zip(zipname, quest_files, quest_dir)
-      
-      resource_body <- list(
-        dctype      = "doc/qst",
-        dcformat    = "application/zip",
-        title       = "Questionnaires",
-        author      = author,
-        description = paste0(zipname, " includes the following files: ", paste(basename(quest_files), collapse = ", "))
-      )
-      
-      res <- create_resource(project_id, resource_body, file_path = zipfile, ME_API_KEY)
-      log_resource("Questionnaire", res, idno)
-    }
-  }
-  
-  if (!tech_exists && !quest_exists) {
-    top_files <- dir_ls(doc_dir, recurse = FALSE, type = "file")
-    
-    if (length(top_files) > 0) {
-      zipname <- paste0("Technical_", idno, ".zip")
-      zipfile <- make_zip(zipname, top_files, doc_dir)
-      
-      resource_body <- list(
-        dctype      = "doc/tec",
-        dcformat    = "application/zip",
-        title       = "Technical Documents",
-        author      = author,
-        description = paste0(zipname, " includes the following files: ", paste(basename(top_files), collapse = ", "))
-      )
-      
-      res <- create_resource(project_id, resource_body, file_path = zipfile, ME_API_KEY)
-      log_resource("Technical documentation", res, idno)
-    }
-  }
-  
-  return()
-}
-
-## This function identifies additional data files and uploads them as zipped files 
-handle_additional_data_resources <- function(project_id, idno, dta_path, ME_API_KEY, row) {
-  data_root <- path_dir(path_dir(dta_path))
-  data_dir  <- path(data_root, "Additional Data")
-  
-  if (!dir_exists(data_dir)) {
-    message("No Additional Data folder, skipping.")
-    return()
-  }
-  
-  author <- if (!is.null(row$producers_name) && !is.na(row$producers_name) && nzchar(trimws(row$producers_name))) {
-    row$producers_name
-  } else {
-    paste("National Statistical Offices of", row$nation_name)
-  }
-  
-  data_files <- dir_ls(data_dir, recurse = TRUE, type = "file")
-  
-  if (length(data_files) == 0) {
-    message("Additional Data folder is empty, skipping.")
-    return()
-  }
-  
-  zipname <- paste0("Additional_Data_", idno, ".zip")
-  zipfile <- make_zip(zipname, data_files, data_dir)
-  
-  resource_body <- list(
-    dctype      = "dat/oth",
-    dcformat    = "application/zip",
-    title       = "Additional Data",
-    author      = author,
-    description = paste0(zipname, " includes the following files: ", paste(basename(data_files), collapse = ", "))
-  )
-  
-  res <- create_resource(project_id, resource_body, file_path = zipfile, ME_API_KEY)
-  log_resource("Additional data", res, idno)
-  
-  return()
-}
-
-
-publish_project <- function(project_id, ME_API_KEY, catalog_connection_id, publish_metadata = TRUE, publish_thumbnail = TRUE, publish_resources = TRUE) {
+publish_project<- function(project_id, ME_API_KEY, catalog_connection_id, publish_metadata = TRUE, publish_thumbnail = TRUE, publish_resources = TRUE) {
   
   url <- paste0(METADATA_API_BASE, "jobs/publish_to_nada")
 
@@ -307,7 +136,7 @@ publish_project <- function(project_id, ME_API_KEY, catalog_connection_id, publi
     options              = list(
       overwrite = "yes",
       published = 1,
-      access_policy = "licensed",
+      access_policy = "public",
       repositoryid = "GLD"
     )
   )
@@ -325,15 +154,8 @@ publish_project <- function(project_id, ME_API_KEY, catalog_connection_id, publi
   if (!status_ok) {
     cat("Dataset publish failed: ", jsonlite::toJSON(parsed, auto_unbox = TRUE))
     cat("project_id: ",            project_id)
-    cat("catalog_connection_id: ", catalog_connection_id)
-    cat("overwrite: ",             overwrite)
-    cat("priority: ",              priority)
-    cat("max_attempts: ",          max_attempts)
   }
 
-  if (status_ok) {
-    cat("Dataset published successfully: ", project_id)
-  }
 
   list(
     url           = url,
@@ -347,66 +169,220 @@ publish_project <- function(project_id, ME_API_KEY, catalog_connection_id, publi
   )
 }
 
-## This function updates the published flag in _ingestion_metadata
-update_metadata <- function(fname_base) {
+
+
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC #### Functions handling external resources
+# MAGIC
+
+# COMMAND ----------
+
+get_author <- function(row) {
+  if (!is.null(row$producers_name) &&
+      !is.na(row$producers_name) &&
+      nzchar(trimws(row$producers_name))) {
+    row$producers_name
+  } else {
+    paste("National Statistical Offices of", row$nation_name)
+  }
+}
+
+
+make_zip <- function(zipname, files_abs, root_dir) {
+  zipfile   <- file.path(tempdir(), zipname)
+  rel_files <- fs::path_rel(files_abs, start = root_dir)
+  zip::zip(zipfile, files = rel_files, root = root_dir)
+  zip_contents <- zip::zip_list(zipfile)$filename
+  message(sprintf("Created ZIP %s with %d files", basename(zipfile), length(zip_contents)))
+  message(sprintf("ZIP contents: %s", paste(zip_contents, collapse = ", ")))
+  zipfile
+}
+
+
+log_resource <- function(kind, res, idno) {
+  if (is.na(res)) {
+    message(kind, " resource creation failed for ", idno)
+  } else if (isTRUE(res)) {
+    message(kind, " resource created for ", idno, ", but no id returned")
+  } else {
+    message(kind, " resource created for ", idno, " (resource_id = ", res, ")")
+  }
+}
+
+
+
+upload_resource <- function(project_id, file_path, resource_body,
+                            ME_API_KEY, label, idno) {
+  res <- create_resource(project_id, resource_body,
+                         file_path = file_path, ME_API_KEY)
+  log_resource(paste0(label, " (", basename(file_path), ")"), res, idno)
+  res
+}
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC #### Functions specific to long-wide tables
+
+# COMMAND ----------
+
+# This function creates a new table in the microdata catalog with title and description
+create_table <- function(db_id, table_id, title, description, NADA_API_KEY) {
+  url <- paste0(MICRODATA_API_BASE, "tables/create_table/", db_id, "/", table_id)
+
+  resp <- with_retry(function() httr::POST(
+    url,
+    httr::add_headers(`X-API-KEY` = NADA_API_KEY, `Accept` = "application/json"),
+    httr::timeout(60),
+    body   = list(title = title, description = description),
+    encode = "json"
+  ))
+
+  raw_text <- httr::content(resp, as = "text", encoding = "UTF-8")
+
+  if (httr::status_code(resp) >= 300) {
+    message("Table creation failed [HTTP ", httr::status_code(resp), "]: ", raw_text)
+    return(NA)
+  }
+
+  parsed <- jsonlite::fromJSON(raw_text, simplifyVector = FALSE)
+  message("Table created: ", parsed$message)
+  TRUE
+}
+
+# This function uploads a zipped CSV file to the catalog table created by create_table()
+upload_table_file <- function(db_id, table_id, file_path, title, description, NADA_API_KEY) {
+  url <- paste0(MICRODATA_API_BASE, "tables/upload/", db_id, "/", table_id)
+
+  resp <- with_retry(function() httr::POST(
+    url,
+    httr::add_headers(`X-API-KEY` = NADA_API_KEY),
+    httr::timeout(300),
+    body = list(
+      file        = httr::upload_file(file_path),
+      title       = title,
+      description = description
+    ),
+    encode = "multipart"
+  ))
+
+  parsed <- httr::content(resp, as = "parsed", encoding = "UTF-8")
+
+  if (httr::status_code(resp) >= 300) {
+    message("Table upload failed: ", parsed$message)
+    return(NA)
+  }
+
+  message("Table uploaded, import status: ", parsed$import_status)
+  parsed$import_status
+}
+
+
+# This function attaches a catalog table to a study using the study IDNO
+attach_table_to_study <- function(db_id, table_id, idno, NADA_API_KEY) {
+  url <- paste0(MICRODATA_API_BASE, "tables/attach_to_study")
+
+  resp <- with_retry(function() httr::POST(
+    url,
+    httr::add_headers(`X-API-KEY` = NADA_API_KEY),
+    httr::timeout(60),
+    body   = list(db_id = db_id, table_id = table_id, idno = idno),
+    encode = "json"
+  ))
+
+  parsed <- httr::content(resp, as = "parsed", encoding = "UTF-8")
+
+
+  if (httr::status_code(resp) >= 300) {
+    message("Table attach failed: ", parsed$message)
+    return(NA)
+  }
+
+  isTRUE(parsed$result)
+}
+
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC
+# MAGIC #### Other helper functions
+
+# COMMAND ----------
+
+# this function gets the stata version from the dta file
+get_stata_version <- function(dta_path) {
+  raw <- readBin(dta_path, what = "raw", n = 80)
+  first_char <- rawToChar(raw[1])
+  
+  if (first_char == "<") {
+    # Only convert bytes up to the first null byte
+    nul_pos <- which(raw == as.raw(0))
+    end_pos <- if (length(nul_pos) > 0) nul_pos[1] - 1 else length(raw)
+    header_str <- rawToChar(raw[1:end_pos])
+    m <- regmatches(header_str, regexpr("(?<=<release>)\\d+", header_str, perl = TRUE))
+    if (length(m) == 0) return("unknown")
+    
+    format_to_version <- c(
+      `117` = "13",
+      `118` = "14",
+      `119` = "15"
+    )
+    version <- format_to_version[m]
+    return(if (is.na(version)) "unknown" else version)
+  }
+  
+  code <- as.integer(raw[1])
+  format_to_version <- c(
+    `102` = "1",
+    `103` = "2",
+    `104` = "3",
+    `105` = "4",
+    `108` = "6",
+    `110` = "7",
+    `111` = "7se",
+    `112` = "8",
+    `113` = "8",
+    `114` = "10",
+    `115` = "12"
+  )
+  version <- format_to_version[as.character(code)]
+  if (is.na(version)) {
+    message("Unknown Stata format byte: ", code)
+    return("unknown")
+  }
+  version
+}
+
+# This function updates the published flag in _ingestion_metadata
+update_metadata <- function(filename) {
   DBI::dbExecute(
     sc,
     paste0(
       "UPDATE ", METADATA_TABLE, "
        SET published = TRUE
-       WHERE fname_base = '", fname_base, "'"
+       WHERE filename = '", filename, "'"
     )
   )
-  message("Updated metadata for: ", fname_base)
+  message("Updated metadata for: ", filename)
 }
 
 
-## This function fetches the project JSON, injects variable labels, and updates the project. It is currently used to publish the harmonized tables CSV.
-update_project_with_variables <- function(project_id, table_name, sc, ME_API_KEY) {
-  # 1. Fetch the current project JSON
-  url_get <- paste0(METADATA_API_BASE, "editor/json/", project_id)
+get_project_id_by_idno <- function(idno, ME_API_KEY) {
+  url <- paste0(METADATA_API_BASE, "editor/", idno)
   
-  resp_get <- httr::GET(
-    url_get,
+  resp <- httr::GET(
+    url,
     httr::add_headers(`X-API-KEY` = ME_API_KEY)
   )
   
-  if (httr::status_code(resp_get) >= 300) {
-    message("Failed to fetch project JSON: ", httr::content(resp_get, as = "text", encoding = "UTF-8"))
+  if (httr::status_code(resp) >= 300) {
     return(NA)
   }
   
-  json_obj <- httr::content(resp_get, as = "parsed", encoding = "UTF-8")
-  
-  # 2. Get column metadata from Databricks
-  col_metadata <- DBI::dbGetQuery(sc, paste0("DESCRIBE TABLE ", table_name))
-  
-  # 3. Update the labels in existing variables
-  if (!is.null(json_obj$variables) && length(json_obj$variables) > 0) {
-    for (i in seq_along(json_obj$variables)) {
-      var_name <- json_obj$variables[[i]]$name
-      matching_col <- col_metadata[col_metadata$col_name == var_name, ]
-      if (nrow(matching_col) > 0 && !is.na(matching_col$comment[1]) && nzchar(matching_col$comment[1])) {
-        json_obj$variables[[i]]$labl <- matching_col$comment[1]
-      }
-    }
-  }
-  
-  # 4. Send updated JSON back
-  url_update <- paste0(METADATA_API_BASE, "editor/update/survey/", project_id)
-  
-  resp_update <- httr::POST(
-    url_update,
-    httr::add_headers(`X-API-KEY` = ME_API_KEY),
-    body = json_obj,
-    encode = "json"
-  )
-  
-  if (httr::status_code(resp_update) >= 300) {
-    message("Project update failed: ", httr::content(resp_update, as = "text", encoding = "UTF-8"))
-    return(NA)
-  }
-  
-  message("Successfully updated variable labels for project ", project_id)
-  return(TRUE)
+  parsed <- httr::content(resp, as = "parsed", encoding = "UTF-8")
+  as.integer(parsed$project$id)
 }

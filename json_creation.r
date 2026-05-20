@@ -25,12 +25,15 @@ if (!exists("fetch_countries_names")) {
   source("helpers/json_pipeline.r")
 }
 
+# COMMAND ----------
+
 if (is_databricks()) {
   library(sparklyr)
   sc <- spark_connect(method = "databricks")
-
-  metadata <- tbl(sc, METADATA_TABLE) %>% collect()
-
+  
+  metadata <- tbl(sc, METADATA_TABLE) %>% collect() 
+  metadata <- metadata %>% arrange(filename)
+  
   countries_names <- fetch_countries_names(sc)
   survey <- fetch_survey_metadata(ROOT_DIR)
 
