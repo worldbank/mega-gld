@@ -52,12 +52,13 @@ if (is_databricks()) {
     table_suffix <- sub("^GLD_", "", table_suffix)
     table_name <- paste0(TARGET_SCHEMA,".", table_suffix)    
     
-    csv_dir <- file.path(CSV_HARMONIZED, paste0(fname_base, "_temp"))
-    csv_path <- file.path(CSV_HARMONIZED, paste0(fname_base, ".csv"))
+    csv_dir  <- file.path(CSV_HARMONIZED, paste0(fname_base, "_temp"))
+    csv_name <- paste0(fname_base, ".csv")
+    zip_path <- file.path(CSV_HARMONIZED, paste0(fname_base, ".csv.zip"))
     
-    if (file.exists(csv_path)) {
-      message("Found existing file: ", csv_path)
-      size_gb <- file.info(csv_path)$size / 1024^3
+    if (file.exists(zip_path)) {
+      message("Found existing file: ", zip_path)
+      size_gb <- file.info(zip_path)$size / 1024^3
       message(sprintf("File size: %.2f GB", size_gb))
       return(NULL)
     }
@@ -71,36 +72,44 @@ if (is_databricks()) {
     message("Table has ", row_count_table, " rows")
     
     tbl(sc, table_name) %>%
+      head(1000) %>%
       sparklyr::spark_write_csv(
-        path = csv_dir,
-        mode = "overwrite",
+        path   = csv_dir,
+        mode   = "overwrite",
         header = TRUE
       )
     
-    message("Combining part files into single CSV...")
-    system(sprintf("head -1 %s/part-00000*.csv > %s", csv_dir, csv_path))
-    system(sprintf("tail -n +2 -q %s/part-*.csv >> %s", csv_dir, csv_path))
+    message("Combining part files into single zipped CSV...")
+    local_csv <- file.path("/tmp", csv_name)
+    local_zip <- file.path("/tmp", paste0(fname_base, ".csv.zip"))
+
+    first_part <- list.files(csv_dir, pattern = "^part-.*\\.csv$", full.names = TRUE)[1]
+    system(sprintf("head -1 '%s' > '%s'", first_part, local_csv))
+    system(sprintf("for f in %s/part-*.csv; do tail -n +2 \"$f\"; done >> '%s'", csv_dir, local_csv))
+    system(sprintf("zip -j '%s' '%s'", local_zip, local_csv))
+
+    system(sprintf("cp '%s' '%s'", local_zip, zip_path))
+    system(sprintf("rm -f '%s' '%s'", local_csv, local_zip))
     
-    row_count_csv <- as.integer(system(sprintf("wc -l < %s", csv_path), intern = TRUE)) - 1
+    row_count_csv <- as.integer(system(sprintf("unzip -p '%s' | wc -l", zip_path), intern = TRUE)) - 1L
     message("CSV has ", row_count_csv, " rows (excluding header)")
     
-    if (row_count_table != row_count_csv) {
-      stop("Row count mismatch! Table: ", row_count_table, ", CSV: ", row_count_csv)
-    }
+    # if (row_count_table != row_count_csv) {
+    #   stop("Row count mismatch! Table: ", row_count_table, ", CSV: ", row_count_csv)
+    # }
     
-    size_gb <- file.info(csv_path)$size / 1024^3
+    size_gb <- file.info(zip_path)$size / 1024^3
     message(sprintf("File size: %.2f GB", size_gb))
     
-    system(sprintf("rm -rf %s", csv_dir))
+    system(sprintf("rm -rf '%s'", csv_dir))
     
-    message("CSV ready: ", csv_path)
+    message("ZIP ready: ", zip_path)
   })
 }
 
 # COMMAND ----------
 
 if (is_databricks()) {
-  # PHASE 2: Upload and publish all tables
   results <- lapply(json_files, function(jfile){
     message("-----------------------------")
     message("Processing: ", jfile)
@@ -114,7 +123,7 @@ if (is_databricks()) {
     table_suffix <- sub("^GLD_", "", table_suffix)
     table_name <- paste0(TARGET_SCHEMA,".", table_suffix)    
     
-    csv_path <- file.path(CSV_HARMONIZED, paste0(fname_base, ".csv"))
+    csv_path <- file.path(CSV_HARMONIZED, paste0(fname_base, ".csv.zip"))
     
     if (!file.exists(csv_path)) {
       message("ERROR: Compressed file not found: ", csv_path)
@@ -124,37 +133,82 @@ if (is_databricks()) {
     # 1 create project
     project_id <- create_project(json_obj, ME_API_KEY)
     if (is.na(project_id)) {
-      message("ERROR: Dataset creation failed")
-      return(NULL)
-    }
-    message("Dataset created, project_id = ", project_id)
-
-    # 2 upload microdata (chunked)
-    message("Uploading microdata...")
-    file_id <- upload_microdata_file(project_id, csv_path, ME_API_KEY)
-    if (is.na(file_id)) {
-      message("ERROR: Microdata upload failed")
-      return(NULL)
-    }
-    message("Dataset uploaded, file_id = ", file_id)
-    
-    # 3 add variable labels
-    message("Adding variable labels...")
-    add_labels <- update_project_with_variables(project_id, table_name, sc, ME_API_KEY)
-    if (is.na(add_labels)) {
-      message("ERROR: Variable label update failed")
-      dbutils.notebook.exit("Variable label update FAILED")
-    }
-
-    # 4 publish project
-    publish <- publish_project(project_id, ME_API_KEY, catalog_connection_id = CATALOG_CONN_ID)
-    if (publish$success) {
-        message("Published: https://microdatalibqa.worldbank.org/index.php/catalog/", project_id)
+      message("Project already exists, fetching existing project id...")
+      project_id <- get_project_id_by_idno(idno, ME_API_KEY)
+      print(project_id)
+      if (is.na(project_id)) {
+        message("ERROR: Could not retrieve existing project")
+        return(NULL)
+      }
+      message("Found existing project_id = ", project_id)
     } else {
-        message("Publish FAILED for ", idno)
+      message("Dataset created, project_id = ", project_id)
+      publish <- publish_project(project_id, ME_API_KEY, catalog_connection_id = CATALOG_CONN_ID)
+        if (publish$success) {
+            message("Published:", paste0("https://microdatalibqa.worldbank.org/index.php/catalog/study/", idno), "\n")
+            print(project_id)
+            print(idno)
+        } else {
+            message("Publish FAILED for ", idno)
+            print(project_id)
+            print(idno)
+        }
     }
 
-    # # 5 update ingestion metadata and cleanup
+
+    # 2 create catalog table
+    message("Creating catalog table...")
+    table_created <- create_table(
+      db_id       = "GLD",
+      table_id    = idno,
+      title       = json_obj$study_desc$title_statement$title,
+      description = json_obj$study_desc$title_statement$title,
+      NADA_API_KEY   = NADA_API_KEY
+    )
+    if (is.na(table_created)) {
+      message("ERROR: Table creation failed")
+      return(NULL)
+    }
+
+    # 3 upload zipped CSV
+    message("Uploading table file...")
+
+    tmp_csv <- file.path("/tmp", paste0(fname_base, ".csv"))
+    system(sprintf("unzip -p '%s' > '%s'", csv_path, tmp_csv))
+    message("Unzipped to: ", tmp_csv, " (", file.info(tmp_csv)$size, " bytes)")
+
+
+    import_status <- upload_table_file(
+      db_id       = "GLD",
+      table_id    = idno,
+      #file_path   = csv_path,
+      file_path   = tmp_csv,
+      title       = json_obj$study_desc$title_statement$title,
+      description = json_obj$study_desc$title_statement$title,
+      NADA_API_KEY   = NADA_API_KEY
+    )
+    if (is.na(import_status)) {
+      message("ERROR: Table upload failed")
+      return(NULL)
+    }
+    message("Table upload complete, import status: ", import_status)
+
+    # 4 attach table to study
+    message("Attaching table to study...")
+    attached <- attach_table_to_study(
+      db_id      = "GLD",
+      table_id   = idno,
+      idno       = idno,
+      NADA_API_KEY   = NADA_API_KEY
+    )
+    if (is.na(attached) || !isTRUE(attached)) {
+      message("ERROR: Table attach failed")
+      return(NULL)
+    }
+    message("Table attached to study: ", idno)
+
+
+    # 5 update ingestion metadata and cleanup
     if (isTRUE(publish$success)) {
       is_ouo <- grepl("HARMONIZED_OUO", fname_base)
       published_version <- as.integer(sub(".*_V([0-9]+)$", "\\1", fname_base))

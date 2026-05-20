@@ -1,8 +1,4 @@
 # Databricks notebook source
-install.packages("pdftools")
-
-# COMMAND ----------
-
 library(httr)
 library(jsonlite)
 library(readxl)
@@ -16,6 +12,7 @@ library(readxl)
 
 if (is_databricks()) {
   system("sudo apt-get install -y libpoppler-cpp-dev", intern = TRUE)
+  install.packages("pdftools")
   library(pdftools)
 }
 
