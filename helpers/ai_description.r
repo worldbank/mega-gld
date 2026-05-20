@@ -6,7 +6,7 @@ install.packages("pdftools")
 library(httr)
 library(jsonlite)
 library(readxl)
-library(pdftools)
+
 
 # COMMAND ----------
 
@@ -16,6 +16,7 @@ library(pdftools)
 
 if (is_databricks()) {
   system("sudo apt-get install -y libpoppler-cpp-dev", intern = TRUE)
+  library(pdftools)
 }
 
 # COMMAND ----------
