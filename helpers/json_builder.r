@@ -99,7 +99,7 @@ make_mdl_json <- function(row, countries_names) {
 
     doc_desc = list(
       title = row$filename,
-      idno  = row$filename,
+      idno  = paste0("DDI_", row$filename),
       producers = list(
         list(
           name = GLD_TEAM_NAME,
@@ -157,7 +157,7 @@ make_mdl_json <- function(row, countries_names) {
           list(
             name = WB_AFFIL,
             abbreviation = "",
-            role = ""
+            role = ROLE_PRODUCERS
           )
         )
       ),

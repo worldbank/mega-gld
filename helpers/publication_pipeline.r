@@ -19,7 +19,7 @@ if (!exists("is_databricks")) {
   source("helpers/config.r")
 }
 
-if (!exists("get_ai_descriptions")) {
+if (!exists("get_ai_description_tech")) {
   source("helpers/ai_description.r")
 }
 
@@ -64,7 +64,6 @@ create_project <- function(json_data, ME_API_KEY){
   
   parsed$id
 }
-
 
 # This function uploads the microdata file to the project created using create_project(), and generates statistics for microdata variables
 upload_microdata_file <- function(project_id, file_path, ME_API_KEY, description) {
@@ -168,55 +167,7 @@ publish_project<- function(project_id, ME_API_KEY, catalog_connection_id, publis
 }
 
 
-# This function fetches the project JSON, injects variable labels, and updates the project. It is currently used to publish the harmonized tables CSV.
-update_project_with_variables <- function(project_id, table_name, sc, ME_API_KEY) {
-  # 1. Fetch the current project JSON
-  url_get <- paste0(METADATA_API_BASE, "editor/json/", project_id)
-  
-  resp_get <- httr::GET(
-    url_get,
-    httr::add_headers(`X-API-KEY` = ME_API_KEY)
-  )
-  
-  if (httr::status_code(resp_get) >= 300) {
-    message("Failed to fetch project JSON: ", httr::content(resp_get, as = "text", encoding = "UTF-8"))
-    return(NA)
-  }
-  
-  json_obj <- httr::content(resp_get, as = "parsed", encoding = "UTF-8")
-  
-  # 2. Get column metadata from Databricks
-  col_metadata <- DBI::dbGetQuery(sc, paste0("DESCRIBE TABLE ", table_name))
-  
-  # 3. Update the labels in existing variables
-  if (!is.null(json_obj$variables) && length(json_obj$variables) > 0) {
-    for (i in seq_along(json_obj$variables)) {
-      var_name <- json_obj$variables[[i]]$name
-      matching_col <- col_metadata[col_metadata$col_name == var_name, ]
-      if (nrow(matching_col) > 0 && !is.na(matching_col$comment[1]) && nzchar(matching_col$comment[1])) {
-        json_obj$variables[[i]]$labl <- matching_col$comment[1]
-      }
-    }
-  }
-  
-  # 4. Send updated JSON back
-  url_update <- paste0(METADATA_API_BASE, "editor/update/survey/", project_id)
-  
-  resp_update <- httr::POST(
-    url_update,
-    httr::add_headers(`X-API-KEY` = ME_API_KEY),
-    body = json_obj,
-    encode = "json"
-  )
-  
-  if (httr::status_code(resp_update) >= 300) {
-    message("Project update failed: ", httr::content(resp_update, as = "text", encoding = "UTF-8"))
-    return(NA)
-  }
-  
-  message("Successfully updated variable labels for project ", project_id)
-  return(TRUE)
-}
+
 
 # COMMAND ----------
 
@@ -271,6 +222,90 @@ upload_resource <- function(project_id, file_path, resource_body,
 # COMMAND ----------
 
 # MAGIC %md
+# MAGIC #### Functions specific to long-wide tables
+
+# COMMAND ----------
+
+# This function creates a new table in the microdata catalog with title and description
+create_table <- function(db_id, table_id, title, description, NADA_API_KEY) {
+  url <- paste0(MICRODATA_API_BASE, "tables/create_table/", db_id, "/", table_id)
+
+  resp <- with_retry(function() httr::POST(
+    url,
+    httr::add_headers(`X-API-KEY` = NADA_API_KEY, `Accept` = "application/json"),
+    httr::timeout(60),
+    body   = list(title = title, description = description),
+    encode = "json"
+  ))
+
+  raw_text <- httr::content(resp, as = "text", encoding = "UTF-8")
+
+  if (httr::status_code(resp) >= 300) {
+    message("Table creation failed [HTTP ", httr::status_code(resp), "]: ", raw_text)
+    return(NA)
+  }
+
+  parsed <- jsonlite::fromJSON(raw_text, simplifyVector = FALSE)
+  message("Table created: ", parsed$message)
+  TRUE
+}
+
+# This function uploads a zipped CSV file to the catalog table created by create_table()
+upload_table_file <- function(db_id, table_id, file_path, title, description, NADA_API_KEY) {
+  url <- paste0(MICRODATA_API_BASE, "tables/upload/", db_id, "/", table_id)
+
+  resp <- with_retry(function() httr::POST(
+    url,
+    httr::add_headers(`X-API-KEY` = NADA_API_KEY),
+    httr::timeout(300),
+    body = list(
+      file        = httr::upload_file(file_path),
+      title       = title,
+      description = description
+    ),
+    encode = "multipart"
+  ))
+
+  parsed <- httr::content(resp, as = "parsed", encoding = "UTF-8")
+
+  if (httr::status_code(resp) >= 300) {
+    message("Table upload failed: ", parsed$message)
+    return(NA)
+  }
+
+  message("Table uploaded, import status: ", parsed$import_status)
+  parsed$import_status
+}
+
+
+# This function attaches a catalog table to a study using the study IDNO
+attach_table_to_study <- function(db_id, table_id, idno, NADA_API_KEY) {
+  url <- paste0(MICRODATA_API_BASE, "tables/attach_to_study")
+
+  resp <- with_retry(function() httr::POST(
+    url,
+    httr::add_headers(`X-API-KEY` = NADA_API_KEY),
+    httr::timeout(60),
+    body   = list(db_id = db_id, table_id = table_id, idno = idno),
+    encode = "json"
+  ))
+
+  parsed <- httr::content(resp, as = "parsed", encoding = "UTF-8")
+
+
+  if (httr::status_code(resp) >= 300) {
+    message("Table attach failed: ", parsed$message)
+    return(NA)
+  }
+
+  isTRUE(parsed$result)
+}
+
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC
 # MAGIC #### Other helper functions
 
 # COMMAND ----------
@@ -320,15 +355,32 @@ get_stata_version <- function(dta_path) {
 }
 
 # This function updates the published flag in _ingestion_metadata
-update_metadata <- function(fname_base) {
+update_metadata <- function(filename) {
   DBI::dbExecute(
     sc,
     paste0(
       "UPDATE ", METADATA_TABLE, "
        SET published = TRUE
-       WHERE fname_base = '", fname_base, "'"
+       WHERE filename = '", filename, "'"
     )
   )
-  message("Updated metadata for: ", fname_base)
+  message("Updated metadata for: ", filename)
+}
+
+
+get_project_id_by_idno <- function(idno, ME_API_KEY) {
+  url <- paste0(METADATA_API_BASE, "editor/", idno)
+  
+  resp <- httr::GET(
+    url,
+    httr::add_headers(`X-API-KEY` = ME_API_KEY)
+  )
+  
+  if (httr::status_code(resp) >= 300) {
+    return(NA)
+  }
+  
+  parsed <- httr::content(resp, as = "parsed", encoding = "UTF-8")
+  as.integer(parsed$project$id)
 }
 

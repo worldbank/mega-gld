@@ -51,6 +51,7 @@ if (is_databricks()) {
 
   json_files <- list.files(JSON_DIR, pattern="\\.json$", full.names=TRUE)
   json_files <- json_files[!grepl("HARMONIZED", json_files)]
+  json_files <- sort(json_files)
 
   ai_token <- get_azure_openai_token()
 
@@ -92,7 +93,7 @@ if (is_databricks()) {
     doc_root  <- path_dir(path_dir(path_dir(dta_path)))
     doc_dir   <- path(doc_root, "Doc")
     
-    # technical docs or top-level Doc: upload individually
+    # -- technical docs or top-level Doc
     tech_dir  <- path(doc_dir, "Technical")
     tech_exists <- dir_exists(tech_dir)
     tech_source <- if (tech_exists) tech_dir else if (dir_exists(doc_dir)) doc_dir else NULL
@@ -100,66 +101,88 @@ if (is_databricks()) {
       files <- dir_ls(tech_source, recurse = tech_exists, type = "file")
       lapply(files, function(fp) {
 
-          description <- tryCatch(
-              get_ai_description(fp, ai_token),
-              error = function(e) basename(fp))
+          ai_meta <- tryCatch(get_ai_description_tech(fp, ai_token), error = function(e) NULL)
+          if (is.null(ai_meta) || is.na(ai_meta$title)) {
+            ai_meta <- list(
+              title       = "Technical Documentation",
+              description = paste0("Technical Documentation for the ", row$year, " ", row$nation_name, " ", row$survey_extended)
+            )
+          }
 
           resource_body <- list(
             dctype      = "doc/tec",
             dcformat    = mime::guess_type(fp),
-            title       = description,
+            title = paste0(row$nation_name, " (", row$year, ") ", ai_meta$title),
             author      = author,
             filename = basename(fp),
-            description = description
+            description = ai_meta$description
           )
           upload_resource(project_id, fp, resource_body,
                           ME_API_KEY, "Technical documentation", idno)
       })
     }
 
-    # questionnaires: zipped
+    # -- questionnaires
     quest_dir <- path(doc_dir, "Questionnaires")
-    quest_description <- paste0("Survey Questionnaire(s) for the ", row$year, " ", row$nation_name, " ", row$survey_extended) 
     if (dir_exists(quest_dir)) {
       quest_files <- dir_ls(quest_dir, recurse = TRUE, type = "file")
       if (length(quest_files) > 0) {
-        zipname <- paste0("Questionnaires_", idno, ".zip")
-        zipfile <- make_zip(zipname, quest_files, quest_dir)
-        resource_body <- list(
-          dctype      = "doc/qst",
-          dcformat    = "application/zip",
-          title       = "Survey Questionnaire",
-          author      = author,
-          filename    = zipname,
-          description = quest_description
-        )
-        upload_resource(project_id, zipfile, resource_body,
-                        ME_API_KEY, "Questionnaire", idno)
+        lapply(quest_files, function(fp) {
+
+          ai_meta <- tryCatch(get_ai_description_quest(fp, ai_token), error = function(e) NULL)
+          if (is.null(ai_meta) || is.na(ai_meta$title)) {
+            ai_meta <- list(
+              title       = "Survey Questionnaire",
+              description = paste0("Survey Questionnaire for the ", row$year, " ", row$nation_name, " ", row$survey_extended)
+            )
+          }
+
+          resource_body <- list(
+            dctype      = "doc/qst",
+            dcformat    = mime::guess_type(fp),
+            title = paste0(row$nation_name, " (", row$year, ") ", ai_meta$title),
+            author      = author,
+            filename    = basename(fp),
+            description = ai_meta$description
+          )
+          upload_resource(project_id, fp, resource_body,
+                          ME_API_KEY, "Questionnaire", idno)
+        })
       }
     }
+    
 
-    # additional data: zipped
+
+    # -- additional data
     data_dir <- path(path_dir(path_dir(dta_path)), "Additional Data")
-    add_data_description <- paste0("Additional data for the ", row$year, " ", row$nation_name, " ", row$survey_extended) 
     if (dir_exists(data_dir)) {
       data_files <- dir_ls(data_dir, recurse = TRUE, type = "file")
       if (length(data_files) > 0) {
-        zipname <- paste0("Additional_Data_", idno, ".zip")
-        zipfile <- make_zip(zipname, data_files, data_dir)
-        resource_body <- list(
-          dctype      = "dat/oth",
-          dcformat    = "application/zip",
-          title       = "Additional Data",
-          author      = author,
-          filename    = zipname,
-          description = add_data_description
-        )
-        upload_resource(project_id, zipfile, resource_body,
-                        ME_API_KEY, "Additional data", idno)
+        lapply(data_files, function(fp) {
+
+          ai_meta <- tryCatch(get_ai_description_data(fp, ai_token), error = function(e) NULL)
+          if (is.null(ai_meta) || is.na(ai_meta$title)) {
+            ai_meta <- list(
+              title       = "Additional Data",
+              description = paste0("Additional data for the ", row$year, " ", row$nation_name, " ", row$survey_extended)
+            )
+          }
+
+          resource_body <- list(
+            dctype      = "dat/oth",
+            dcformat    = mime::guess_type(fp),
+            title       = paste0(row$nation_name, " (", row$year, ") ", ai_meta$title),
+            author      = author,
+            filename    = basename(fp),
+            description = ai_meta$description
+          )
+          upload_resource(project_id, fp, resource_body,
+                          ME_API_KEY, "Additional data", idno)
+        })
       }
     }
 
-    # do file
+    # -- do file
     do_path <- row$do_path[1]
     if (!is.na(do_path) && nzchar(do_path)) {
       resource_body <- list(
@@ -182,15 +205,15 @@ if (is_databricks()) {
         cat("Publish FAILED for", idno, "\n")
     }
 
-    # # 5 update _ingestion_metadata table and delete json file if publish succeeded
-    # if (isTRUE(publish$success)) {
-    #   update_metadata(idno)
-    #   file.remove(jfile)
-    #   message("Deleted json file: ", jfile)
-    # } else {
-    #   message("Skipping metadata update (publish failed) for: ", idno)
-    # }
-    # message("Dataset processing complete")
+    # 5 update _ingestion_metadata table and delete json file if publish succeeded
+    if (isTRUE(publish$success)) {
+      update_metadata(idno)
+      file.remove(jfile)
+      message("Deleted json file: ", jfile)
+    } else {
+      message("Skipping metadata update (publish failed) for: ", idno)
+    }
+    message("Dataset processing complete")
   
   })
 }
