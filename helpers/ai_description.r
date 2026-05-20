@@ -1,8 +1,4 @@
 # Databricks notebook source
-# MAGIC %sh sudo apt-get update && sudo apt-get install -y libpoppler-cpp-dev
-
-# COMMAND ----------
-
 install.packages("pdftools")
 
 # COMMAND ----------
@@ -15,6 +11,12 @@ library(pdftools)
 # COMMAND ----------
 
 # MAGIC %run "./config"
+
+# COMMAND ----------
+
+if (is_databricks()) {
+  system("sudo apt-get install -y libpoppler-cpp-dev", intern = TRUE)
+}
 
 # COMMAND ----------
 
@@ -192,7 +194,7 @@ get_ai_description_data <- function(file_path, token) {
     "Line 2: A description of at most 20 words expanding on the title. ",
     "Focus on what the file contains, not on what is absent or incomplete.\n",
     "The description should be in English",
-    "Return nothing else."
+    "Return nothing else."if (is_databricks()) {
   )
 
   call_azure_openai(
