@@ -27,7 +27,7 @@ if (!exists("is_databricks")) {
   source("helpers/config.r")
 }
 
-if (!exists("create_dataset")) {
+if (!exists("create_project")) {
   source("helpers/publication_pipeline.r")
   source("helpers/stacking_functions.r")
 }
@@ -122,7 +122,7 @@ if (is_databricks()) {
     }
 
     # 1 create project
-    project_id <- create_dataset(json_obj, ME_API_KEY)
+    project_id <- create_project(json_obj, ME_API_KEY)
     if (is.na(project_id)) {
       message("ERROR: Dataset creation failed")
       return(NULL)

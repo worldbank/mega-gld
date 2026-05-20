@@ -36,8 +36,8 @@ if (!isTRUE(config$run_api_integration)) {
   message("Integration tests disabled in config. Skipping.")
 } else {
 
-  test_that("ME endpoint: create_dataset returns a non-empty id", {
-    id <- create_dataset(
+  test_that("ME endpoint: create_project returns a non-empty id", {
+    id <- create_project(
       json_data = list(
         title = paste0("integration_test_", as.integer(Sys.time())),
         test = TRUE
@@ -92,5 +92,4 @@ if (!isTRUE(config$run_api_integration)) {
 
   message("All integration tests executed.")
 }
-
 
