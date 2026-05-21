@@ -11,9 +11,8 @@ library(readxl)
 # COMMAND ----------
 
 if (is_databricks()) {
-  system("sudo apt-get install -y libpoppler-cpp-dev", intern = TRUE)
-  install.packages("pdftools")
-  library(pdftools)
+    install.packages("reticulate")
+    reticulate::py_install("pdfplumber", pip = TRUE)
 }
 
 # COMMAND ----------
@@ -88,8 +87,14 @@ extract_file_text <- function(path, max_chars = 300) {
   ext <- tolower(tools::file_ext(path))
   text <- tryCatch({
     if (ext == "pdf") {
-      pages <- pdftools::pdf_text(path)
-      paste(pages[1:min(2, length(pages))], collapse = "\n")
+      pdfplumber <- reticulate::import("pdfplumber")
+      pdf <- pdfplumber$open(path)
+      pages <- sapply(pdf$pages[1:min(2, length(pdf$pages))], function(p) {
+        t <- p$extract_text()
+        if (is.null(t)) "" else t
+      })
+      pdf$close()
+      paste(pages, collapse = "\n")
     } else if (ext %in% c("xlsx", "xls")) {
       sheet <- suppressMessages(readxl::read_excel(path, n_max = 10))
       paste(

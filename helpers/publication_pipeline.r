@@ -11,16 +11,8 @@ library(DBI)
 
 # COMMAND ----------
 
-# MAGIC %run "./ai_description"
-
-# COMMAND ----------
-
 if (!exists("is_databricks")) {
   source("helpers/config.r")
-}
-
-if (!exists("get_ai_description_tech")) {
-  source("helpers/ai_description.r")
 }
 
 # COMMAND ----------
