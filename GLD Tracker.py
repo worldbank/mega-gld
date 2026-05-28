@@ -1,19 +1,21 @@
 # Databricks notebook source
-# ==============================================================================
-# variable_coverage_table.py
+
+
+# COMMAND ----------
+
+#==============================================================================
+# gld_variable_coverage_writer.py
 #
 # PURPOSE:
 #   Queries harmonized GLD tables to check variable presence
-#   (at least one non-missing value) for each country-survey-year.
-#   Produces a JSON file for the GLD website Survey Finder.
-#
+#   for each country-survey-year.
+#   
+#   
 # OUTPUT:
-#   variable_coverage.json  
-#
+#   prd_mega.sgld48.gld_variable_coverage  (Delta table)
 
 # ==============================================================================
 
-import json
 from datetime import datetime, timezone
 from pyspark.sql import functions as F
 
@@ -21,12 +23,12 @@ from pyspark.sql import functions as F
 # CONFIG
 # ==============================================================================
 
-META_TABLE       = "prd_csc_mega.sgld48._ingestion_metadata"
+META_TABLE   = "prd_csc_mega.sgld48._ingestion_metadata"
+OUTPUT_TABLE = "prd_mega.sgld48.gld_variable_coverage"
 
-JSON_OUTPUT_PATH = "/Volumes/prd_csc_mega/sgld48/vgld48/Workspace/gld_website/variable_coverage.json"
 # ==============================================================================
 # VARIABLE GROUPS
-# Edit here to add/remove variables or rename categories.
+# 
 # ==============================================================================
 
 VARIABLE_GROUPS = {
@@ -80,7 +82,7 @@ VARIABLE_GROUPS = {
     ]
 }
 
-# Flat list of all variables to check directly (derived flags handled separately)
+# Flat list of all variables to check
 ALL_CHECKVARS = [v for group in VARIABLE_GROUPS.values() for v in group]
 
 # Informality proxies — used to compute the derived "informality" flag
@@ -94,8 +96,8 @@ print("Reading _ingestion_metadata for stacked surveys...")
 
 meta_df = (
     spark.table(META_TABLE)
-    .filter("stacking = 1")
-    .filter("table_name IS NOT NULL")
+    .filter(F.col("stacking") == True)
+    .filter(F.col("table_name").isNotNull())
     .select("country", "year", "survey", "table_name", "harmonization")
     .collect()
 )
@@ -118,7 +120,7 @@ def get_presence_flags(df, col_names, checkvars):
     """
     Checks all variables in a SINGLE aggregation query per table.
     Returns "X" if a variable exists and has at least one non-missing value,
-    "" otherwise. This correctly handles columns that exist but are entirely empty.
+    "" otherwise.
     """
     existing = [v for v in checkvars if v in col_names]
     if not existing:
@@ -128,7 +130,6 @@ def get_presence_flags(df, col_names, checkvars):
         F.sum(F.when(F.col(v).isNotNull(), 1).otherwise(0)).alias(v)
         for v in existing
     ]
-
     counts = df.agg(*agg_exprs).collect()[0]
 
     return {
@@ -139,9 +140,7 @@ def get_presence_flags(df, col_names, checkvars):
 
 def compute_isco_depth(df, col_names):
     """
-    ISCO code depth analysis — mirrors the % threshold method from
-    tracker_withisco_isic.do (the latter method in the Stata code).
-    Runs as a single aggregation query.
+    ISCO code depth analysis.
     Thresholds: likely_4digit if <75% end in 0
                 likely_3digit if >=80% end in 0
                 likely_2digit if >=80% end in 00
@@ -181,9 +180,7 @@ def compute_isco_depth(df, col_names):
 
 def compute_isic_depth(df, col_names):
     """
-    ISIC code depth analysis — mirrors the regex/pattern method from
-    tracker_withisco_isic.do (the latter method in the Stata code).
-    Runs as a single aggregation query.
+    ISIC code depth analysis.
     Classifies codes as: section (A-U), 2-digit, 3-digit, or 4-digit
     based on majority share (>=50% threshold).
     """
@@ -228,7 +225,7 @@ def compute_isic_depth(df, col_names):
 # ==============================================================================
 
 print("Computing variable coverage...")
-coverage_list = []
+rows = []
 
 for row in meta_df:
     country  = row["country"]
@@ -243,124 +240,170 @@ for row in meta_df:
         col_names = survey_df.columns
 
         # All variable presence checks in ONE query per table
-        all_vars_to_check = ALL_CHECKVARS + [v for v in INFORMALITY_PROXIES if v not in ALL_CHECKVARS] + ["wage_no_compen"]
+        all_vars_to_check = ALL_CHECKVARS + [
+            v for v in INFORMALITY_PROXIES if v not in ALL_CHECKVARS
+        ] + ["wage_no_compen"]
         presence = get_presence_flags(survey_df, col_names, all_vars_to_check)
 
         # Derived flags
         presence["informality"]       = "X" if any(presence.get(v) == "X" for v in INFORMALITY_PROXIES) else ""
         presence["real_monthly_wage"] = "X" if presence.get("wage_no_compen") == "X" else ""
 
-        # Code depth analysis (one query each)
+        # Code depth (one query each)
         isco_depth = compute_isco_depth(survey_df, col_names)
         isic_depth = compute_isic_depth(survey_df, col_names)
 
-        # Version fields — read from survey table if columns exist
+        # Version/metadata fields
         isco_ver = get_first_value(survey_df, col_names, "isco_version")
         isic_ver = get_first_value(survey_df, col_names, "isic_version")
         icls_v   = get_first_value(survey_df, col_names, "icls_v")
         survname = get_first_value(survey_df, col_names, "survname")
 
-        coverage_list.append({
-            "country":                   country,
-            "survey_year":               year,
-            "survey":                    survey,
-            "harmonization":             row["harmonization"] or "",
-            "isco_version":              isco_ver,
-            "isic_version":              isic_ver,
-            "icls_v":                    icls_v,
-            "survname":                  survname,
-            "variables":                 presence,
-            "isco_depth":                isco_depth,
-            "isic_depth":                isic_depth
-        })
+        # Build flat row — all fields at the top level (no nested dicts)
+        flat_row = {
+            "country":          country,
+            "survey_year":      year,
+            "survey":           survey,
+            "harmonization":    row["harmonization"] or "",
+            "isco_version":     isco_ver,
+            "isic_version":     isic_ver,
+            "icls_v":           icls_v,
+            "survname":         survname,
+            # ISCO depth columns (prefixed to avoid collision)
+            "isco_present":       isco_depth["present"],
+            "isco_likely_4digit": isco_depth["likely_4digit"],
+            "isco_likely_3digit": isco_depth["likely_3digit"],
+            "isco_likely_2digit": isco_depth["likely_2digit"],
+            # ISIC depth columns (prefixed to avoid collision)
+            "isic_present":         isic_depth["present"],
+            "isic_section_present": isic_depth["section_present"],
+            "isic_likely_2digit":   isic_depth["likely_2digit"],
+            "isic_likely_3digit":   isic_depth["likely_3digit"],
+            "isic_likely_4digit":   isic_depth["likely_4digit"],
+            # Timestamp
+            "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
+
+        # Flatten all variable presence flags into the row
+        flat_row.update(presence)
+        rows.append(flat_row)
 
     except Exception as e:
         print(f"    WARNING: Could not process {tbl_name} — {e}")
         continue
 
-print(f"Successfully processed {len(coverage_list)} surveys.")
+print(f"Successfully processed {len(rows)} surveys.")
 
 # ==============================================================================
-# STEP 4: Build JSON output
+# STEP 4: Create table , then MERGE
 # ==============================================================================
 
-output = {
-    "metadata": {
-        "generated_at":    datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "n_surveys":       len(coverage_list),
-        "variable_groups": VARIABLE_GROUPS
-    },
-    "surveys": coverage_list
-}
+coverage_df = spark.createDataFrame(rows)
+
+# Register as a temp view so we can reference it in the MERGE SQL
+coverage_df.createOrReplaceTempView("coverage_updates")
+
+# Create the target table on first run if it doesn't exist yet.
+# Schema is inferred from the first batch of data.
+spark.sql(f"""
+    CREATE TABLE IF NOT EXISTS {OUTPUT_TABLE}
+    USING DELTA
+    AS SELECT * FROM coverage_updates WHERE 1=0
+""")
+
+# MERGE:
+#   - Update existing rows if any field changed
+#   - Insert new surveys not yet in the table
+#   - Delete surveys no longer in the stacking universe
+spark.sql(f"""
+    MERGE INTO {OUTPUT_TABLE} AS target
+    USING coverage_updates AS source
+    ON  target.country     <=> source.country
+    AND target.survey_year <=> source.survey_year
+    AND target.survey      <=> source.survey
+    WHEN MATCHED THEN
+        UPDATE SET *
+    WHEN NOT MATCHED THEN
+        INSERT *
+    WHEN NOT MATCHED BY SOURCE THEN
+        DELETE
+""")
+
+# Log row counts for audit trail
+after_count = spark.table(OUTPUT_TABLE).count()
+print(f"MERGE complete. {len(rows)} surveys processed. Table now has {after_count} rows.")
+print(f"Output: {OUTPUT_TABLE}")
 
 # ==============================================================================
-# STEP 5: Write JSON 
+# STEP 5: Quick preview
 # ==============================================================================
 
+import pandas as pd
+
+preview_cols = ["country", "survey_year", "survey", "harmonization",
+                "lstatus", "empstat", "wage_no_compen", "isco_present", "isic_present",
+                "generated_at"]
+
+display(
+    spark.table(OUTPUT_TABLE)
+    .select(*preview_cols)
+    .orderBy("country", "survey_year")
+    .limit(50)
+    .toPandas()
+)
+
+
+# COMMAND ----------
+
+spark.table(META_TABLE).select("stacking").printSchema()
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC
+
+# COMMAND ----------
+
+
+spark.sql("SHOW TABLES IN prd_mega.gld LIKE 'gld_variable_coverage'").show()
+
+# COMMAND ----------
+
+import sqlite3
+import pandas as pd
 import os
 
-json_str = json.dumps(output, indent=2, ensure_ascii=False)
+# Step 1: Read the Delta table into a pandas DataFrame
+print("Reading Delta table...")
+df = spark.table("prd_mega.gld.gld_variable_coverage").toPandas()
+print(f"Loaded {len(df)} rows and {len(df.columns)} columns.")
 
-# Write using plain Python file I/O instead of dbutils
-output_path = JSON_OUTPUT_PATH
+# Step 2: Save to SQLite
+db_path = "/tmp/gld_variable_coverage.db"
+conn = sqlite3.connect(db_path)
+df.to_sql("gld_variable_coverage", conn, if_exists="replace", index=False)
+conn.close()
+print(f"SQLite database created at {db_path}")
+dbutils.fs.cp(f"file:{db_path}", "dbfs:/FileStore/gld_variable_coverage.db")
+# Save as CSV instead
+df.to_csv("/tmp/gld_variable_coverage.csv", index=False)
 
-with open(output_path, "w", encoding="utf-8") as f:
-    f.write(json_str)
+# Display download link
+displayHTML('<a href="files/gld_variable_coverage.csv">Click here to download the CSV file</a>')
 
-print("Done! variable_coverage.json written successfully.")
-print(f"Output: {output_path}")
-
-import pandas as pd
-
-# Build a flat table from the coverage list
-rows = []
-for s in coverage_list:
-    row = {
-        "Country":     s["country"],
-        "Survey":      s["survey"],
-        "Year":        s["survey_year"],
-    }
-    # Add all variable presence flags
-    row.update(s["variables"])
-    rows.append(row)
-
-df_preview = pd.DataFrame(rows)
-
-# Show it
-display(df_preview)
 
 # COMMAND ----------
 
-import pandas as pd
+# Display the file for download
+with open("/tmp/gld_variable_coverage.db", "rb") as f:
+    data = f.read()
 
-# Build a flat table from the coverage list
-rows = []
-for s in coverage_list:
-    row = {
-        "Country":     s["country"],
-        "Survey":      s["survey"],
-        "Year":        s["survey_year"],
-    }
-    # Add all variable presence flags
-    row.update(s["variables"])
-    rows.append(row)
+import base64
+b64 = base64.b64encode(data).decode()
+displayHTML(f'''
+    <a href="data:application/octet-stream;base64,{b64}" 
+       download="gld_variable_coverage.db">
+       Click here to download gld_variable_coverage.db
+    </a>
+''')
 
-df_preview = pd.DataFrame(rows)
-
-# Show it
-display(df_preview)
-
-# COMMAND ----------
-
-from pyspark.sql import functions as F
-
-# Check BGD 2005 directly
-tables = spark.sql("SHOW TABLES IN sgld48 LIKE 'bgd*'").collect()
-for t in tables:
-    print(t)
-
-# COMMAND ----------
-
-tables = spark.sql("SHOW TABLES IN prd_csc_mega.sgld48 LIKE 'bgd*'").collect()
-for t in tables:
-    print(t)
