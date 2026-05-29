@@ -7,7 +7,6 @@ library(fs)
 library(zip)
 library(readxl)
 
-
 # COMMAND ----------
 
 # MAGIC %run "./helpers/config"
@@ -36,6 +35,7 @@ if (!exists("is_databricks")) {
 # COMMAND ----------
 
 if (is_databricks()) {
+  library(sparklyr)
   sc <- spark_connect(method = "databricks")
 
   metadata <- tbl(sc, METADATA_TABLE) %>% collect()
@@ -75,6 +75,12 @@ if (is_databricks()) {
       warning("Multiple metadata matches for ", idno," (", nrow(row), " rows). Using the first match.")
       row <- row[1, , drop = FALSE]
     }
+
+    dta_path <- row$dta_path[1]
+    if (is.na(dta_path) || !nzchar(dta_path) || !file.exists(dta_path)) {
+      warning("DTA file not found, skipping: ", idno, " (path: ", dta_path, ")")
+      return(list(idno = idno, status = "File not found"))
+    }
   
     # 1 create dataset
     project_id <- create_project(json_obj, ME_API_KEY)
@@ -82,7 +88,6 @@ if (is_databricks()) {
     message("Project created, project_id = ", project_id)
 
     # 2 get and upload file
-    dta_path <- row$dta_path[1]
     file_description <- paste0("Harmonized Dataset of the ", row$year, " ", row$nation_name, " ", row$survey_extended) 
     file_id <- upload_microdata_file(project_id, dta_path, ME_API_KEY, description = file_description)
     if (is.na(file_id)) return(NULL)

@@ -344,7 +344,7 @@ get_stata_version <- function(dta_path) {
   version <- format_to_version[as.character(code)]
   if (is.na(version)) {
     message("Unknown Stata format byte: ", code)
-    return("unknown")
+    return("")
   }
   version
 }

@@ -11,8 +11,10 @@ library(readxl)
 # COMMAND ----------
 
 if (is_databricks()) {
-    install.packages("reticulate")
+  suppressMessages(suppressWarnings({
+    install.packages(c("reticulate", "officer"))
     reticulate::py_install("pdfplumber", pip = TRUE)
+  }))
 }
 
 # COMMAND ----------
@@ -101,6 +103,11 @@ extract_file_text <- function(path, max_chars = 300) {
         paste(names(sheet), collapse = " "),
         paste(apply(sheet, 1, paste, collapse = " "), collapse = " ")
       )
+    } else if (ext == "docx") {
+      doc <- officer::read_docx(path)
+      content <- officer::docx_summary(doc)
+      text_rows <- content[content$content_type == "paragraph", "text"]
+      paste(text_rows, collapse = " ")
     } else {
       paste(readLines(path, n = 50, warn = FALSE), collapse = " ")
     }
