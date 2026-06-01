@@ -53,7 +53,7 @@ if (is_databricks()) {
   json_files <- json_files[!grepl("HARMONIZED", json_files)]
   json_files <- sort(json_files)
 
-  ai_token <- get_azure_openai_token()
+  ai_token <- get_token
 
   results <- lapply(json_files, function(jfile){
     message("-----------------------------")
@@ -106,7 +106,7 @@ if (is_databricks()) {
       files <- dir_ls(tech_source, recurse = tech_exists, type = "file")
       lapply(files, function(fp) {
 
-          ai_meta <- tryCatch(get_ai_description_tech(fp, ai_token), error = function(e) NULL)
+          ai_meta <- tryCatch(get_ai_description_tech(fp), error = function(e) NULL)
           if (is.null(ai_meta) || is.na(ai_meta$title)) {
             ai_meta <- list(
               title       = "Technical Documentation",
@@ -134,7 +134,7 @@ if (is_databricks()) {
       if (length(quest_files) > 0) {
         lapply(quest_files, function(fp) {
 
-          ai_meta <- tryCatch(get_ai_description_quest(fp, ai_token), error = function(e) NULL)
+          ai_meta <- tryCatch(get_ai_description_quest(fp), error = function(e) NULL)
           if (is.null(ai_meta) || is.na(ai_meta$title)) {
             ai_meta <- list(
               title       = "Survey Questionnaire",
@@ -165,7 +165,7 @@ if (is_databricks()) {
       if (length(data_files) > 0) {
         lapply(data_files, function(fp) {
 
-          ai_meta <- tryCatch(get_ai_description_data(fp, ai_token), error = function(e) NULL)
+          ai_meta <- tryCatch(get_ai_description_data(fp), error = function(e) NULL)
           if (is.null(ai_meta) || is.na(ai_meta$title)) {
             ai_meta <- list(
               title       = "Additional Data",
@@ -210,7 +210,7 @@ if (is_databricks()) {
         cat("Publish FAILED for", idno, "\n")
     }
 
-    # 5 update _ingestion_metadata table and delete json file if publish succeeded
+    #5 update _ingestion_metadata table and delete json file if publish succeeded
     if (isTRUE(publish$success)) {
       update_metadata(idno)
       file.remove(jfile)
