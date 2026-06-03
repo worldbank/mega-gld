@@ -62,4 +62,8 @@ if (!exists("is_databricks")) {
 
 # COMMAND ----------
 
+# MAGIC %run ./testthat/test_ai_descriptions
+
+# COMMAND ----------
+
 # MAGIC %run ./testthat/test_stacking_functions

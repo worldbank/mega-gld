@@ -10,17 +10,13 @@ library(readxl)
 
 # COMMAND ----------
 
-if (is_databricks()) {
-  suppressMessages(suppressWarnings({
-    install.packages(c("reticulate", "officer"))
-    reticulate::py_install("pdfplumber", pip = TRUE)
-  }))
-}
+# MAGIC %run "./extract_text"
 
 # COMMAND ----------
 
 if (!exists("is_databricks")) {
   source("helpers/config.r")
+  source("helpers/extract_text.r")
 }
 
 # COMMAND ----------
@@ -43,42 +39,6 @@ get_azure_openai_token <- function() {
   }
 
   httr::content(resp, as = "parsed", encoding = "UTF-8")$access_token
-}
-
-
-extract_file_text <- function(path, max_chars = 300) {
-  ext <- tolower(tools::file_ext(path))
-
-  if (ext %in% c("doc", "dta", "jpg", "png", "rar", "sav", "zip", "xml", "xls")) {
-    return("")
-  }
-  
-  text <- tryCatch({
-    if (ext == "pdf") {
-      pdfplumber <- reticulate::import("pdfplumber")
-      pdf <- pdfplumber$open(path)
-      pages <- sapply(pdf$pages[1:min(2, length(pdf$pages))], function(p) {
-        t <- p$extract_text()
-        if (is.null(t)) "" else t
-      })
-      pdf$close()
-      paste(pages, collapse = "\n")
-    } else if (ext == "xlsx") {
-      sheet <- suppressMessages(readxl::read_excel(path, n_max = 10))
-      paste(
-        paste(names(sheet), collapse = " "),
-        paste(apply(sheet, 1, paste, collapse = " "), collapse = " ")
-      )
-    } else if (ext == "docx") {
-      doc <- officer::read_docx(path)
-      content <- officer::docx_summary(doc)
-      text_rows <- content[content$content_type == "paragraph", "text"]
-      paste(text_rows, collapse = " ")
-    } else {
-      paste(readLines(path, n = 50, warn = FALSE), collapse = " ")
-    }
-  }, error = function(e) "")
-  substr(trimws(text), 1, max_chars)
 }
 
 
