@@ -39,7 +39,7 @@ ___
 It also computes the `stacking` flag (1 if the table is supposed to be stacked in the _gld_harmonized_*_ tables, 0 otherwise).
 > The stacking flag identifies which dataset versions should be included for each country–year combination. Only datasets for which the data classification was successfully parsed are eligible to be stacked. For both annual data (by country–year) and quarterly data (by country–year–quarter), the most recent eligible version is stacked; if the latest version does not have a data classification in the __ingestion_metadata_ table, the logic falls back to the next most recent classified version. Panel datasets are always excluded from stacking, all other rows default to stacking = 0, and when multiple harmonization types exist for the same country–year, GLD datasets are preferred over GLD-Light.
 ___
-**table_stacking:** stacks individual country–year survey tables into the consolidated _gld_harmonized_*_ tables. The script:
+**incremental_sync:** stacks individual country–year survey tables into the consolidated _gld_harmonized_*_ tables. The script:
 1. Identifies which tables need to be added or updated by comparing `stacking` flags and existing `stacked_*_table_version` values in the __ingestion_metadata_ table.
 2. For each table to be stacked, aligns its columns to the standard schema defined in `helpers/stacking_schema.r` — casting types, filling missing columns with NULL, and carrying over dynamic columns (subnational IDs, GAUL codes).
 3. Removes existing rows for the affected country–year–survey–quarter combinations from the harmonized tables (anti-join), then writes the new data in batches and overwrites the production table atomically.
@@ -64,11 +64,17 @@ When a new column is added to or removed from the GLD data dictionary, the stack
 
 
 
+___
+**availability_creation:** creates and keeps up to date the `prd_mega.sgld48.gld_availability` table, which tracks which country/year/survey combinations are available in the catalog along with their data classification. For each combination, it retains only the most recent ingested version (by `table_version`).
+<br>
+<br>
+
+
 ### Publication of individual tables to Microdata Library Job Scripts
 ___
-**json_creation:** creates all the .json files from metadata in the __ingestion_metadata_ table, using the supporting files _countries.csv_, and _survey_metadata.csv_, and saves them in the json_temp folder. It also computes and verifies github links for those surveys that have documentation published in github.
+**json_creation:** creates all the .json files from metadata in the __ingestion_metadata_ table, using country names from the `prd_mega.indicator.country` table and survey metadata from the `survey-metadata.xlsx` file, and saves them in the `json_to_publish` folder. It also computes and verifies github links for those surveys that have documentation published in github.
 ___
-**json_publication:** publishes all the json files in json_temp, alongside the corresponding datasets (using the file in the `dta_path` column of the __ingestion_metadata_ table), .do files (using the file in the `do_path` column of the __ingestion_metadata_ table) and technical documentation/questionnaires (found in the corresponding Docs folder). 
+**json_publication:** publishes all the json files in the `json_to_publish` folder, alongside the corresponding datasets (using the file in the `dta_path` column of the __ingestion_metadata_ table), .do files (using the file in the `do_path` column of the __ingestion_metadata_ table), technical documentation/questionnaires (found in the corresponding Docs folder), and any additional data files found in an `Additional Data/` folder alongside the .dta file. AI-generated titles and descriptions are produced for each uploaded resource. 
 > Please note that the environment variable "NADA_API_KEY" is used to publish. if the API key needs to be updated, follow [these instructions](https://docs.databricks.com/aws/en/security/secrets/). The scope is GLDKEYVAULT, and it can be managed by anyone in the ITSDA-LKHS-DAP-PROD-gld team.
 > Please note that the structure of the Docs folders varies. Some Docs folders contain files, some contain subfolders called Technical and Questionnaires - however these can be empty. For convenience, if documents are correctly organized, they will be published as two separate resources (Questionnaires and Technical Documentation). If they are not, all documents get uploaded as Technical Documentation. 
 <br>
