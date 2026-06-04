@@ -16,8 +16,9 @@ library(readxl)
 
 if (!exists("is_databricks")) {
   source("helpers/config.r")
-  source("helpers/extract_text.r")
+  source("helpers/helpers/extract_text.r")
 }
+
 
 # COMMAND ----------
 

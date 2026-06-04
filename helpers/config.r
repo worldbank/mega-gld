@@ -66,13 +66,6 @@ if (IN_DATABRICKS) {
   GPT_TOKEN_SCOPE     <- Sys.getenv("GPT_TOKEN_SCOPE")
 }
 
-AZURE_OPENAI_SYSTEM_PROMPT <- paste(
-  "You are an AI assistant that writes concise metadata titles and descriptions.",
-  "Always return exactly two lines: a title on line 1, a description on line 2.",
-  "No preamble, no numbering, no blank lines, no extra text.",
-  "Describe what is present, never what is missing."
-)
-
 #API Integration Tests Config
 RUN_API_INTEGRATION <- FALSE
 
