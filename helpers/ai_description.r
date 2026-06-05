@@ -118,11 +118,18 @@ ai_description_from_filename <- function(file_path, resource_type = "technical d
     "Return nothing else."
   )
 
-  call_azure_openai(
+  result <- call_azure_openai(
     system_msg = "You are an AI assistant that writes concise metadata titles and descriptions for documents. Always return exactly two lines: a title, then a description.",
     user_msg   = prompt,
     token      = token
   )
+
+  if (is.null(result)) {
+    message("  Content filter triggered on filename fallback, returning NA")
+    return(list(title = NA_character_, description = NA_character_))
+  }
+
+  result
 }
 
 
