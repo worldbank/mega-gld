@@ -115,9 +115,11 @@ create_resource <- function(project_id, resource_body, file_path, ME_API_KEY) {
 }
 
 
-publish_project<- function(project_id, ME_API_KEY, catalog_connection_id, publish_metadata = TRUE, publish_thumbnail = TRUE, publish_resources = TRUE) {
+publish_project<- function(project_id, ME_API_KEY, catalog_connection_id, classification, publish_metadata = TRUE, publish_thumbnail = TRUE, publish_resources = TRUE) {
   
   url <- paste0(METADATA_API_BASE, "jobs/publish_to_nada")
+
+  access_policy <- if (classification == "Confidential") "licensed" else "public"
 
   body <- list(
     project_id           = project_id,
@@ -128,7 +130,7 @@ publish_project<- function(project_id, ME_API_KEY, catalog_connection_id, publis
     options              = list(
       overwrite = "yes",
       published = 1,
-      access_policy = "public",
+      access_policy = access_policy,
       repositoryid = "GLD"
     )
   )

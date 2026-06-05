@@ -203,7 +203,7 @@ if (is_databricks()) {
     }
 
     # 4 publish project
-    publish <- publish_project(project_id, ME_API_KEY, catalog_connection_id = CATALOG_CONN_ID)
+    publish <- publish_project(project_id, ME_API_KEY, catalog_connection_id = CATALOG_CONN_ID, classification = row$classification)
     if (publish$success) {
         cat("Published:", paste0("https://microdatalibqa.worldbank.org/index.php/catalog/study/", idno), "\n")
     } else {
