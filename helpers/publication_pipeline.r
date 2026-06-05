@@ -36,49 +36,28 @@ with_retry <- function(f, max_attempts = 3, wait_secs = 60) {
   stop(sprintf("All %d attempts failed: %s", max_attempts, conditionMessage(result)))
 }
 
-# This function creates a project in the Metadata Editor by uploading the json file.
-# If the project already exists, retries with overwrite = TRUE.
-# Returns list(id, overwrite_used) or list(id = NA, overwrite_used = FALSE) on failure.
+# This function creates a project in the Metadata Editor by uploading the json file
 create_project <- function(json_data, ME_API_KEY){
   url <- paste0(METADATA_API_BASE, "editor/create/survey")
-
-  do_create <- function(overwrite) {
-    body <- if (overwrite) modifyList(json_data, list(overwrite = "yes")) else json_data
-    with_retry(function() httr::POST(
-      url,
-      httr::add_headers(`X-API-KEY` = ME_API_KEY),
-      httr::timeout(60),
-      body   = body,
-      encode = "json"
-    ))
-  }
-
-  resp   <- do_create(overwrite = FALSE)
+  resp <- with_retry(function() httr::POST(
+    url,
+    httr::add_headers(`X-API-KEY` = ME_API_KEY),
+    httr::timeout(60),
+    body   = json_data,
+    encode = "json"
+  ))
   parsed <- httr::content(resp, as = "parsed", encoding = "UTF-8")
 
   if (httr::status_code(resp) >= 300) {
-    if (httr::status_code(resp) != 400 || !grepl("already exists", parsed$message, fixed = TRUE)) {
-      message("Dataset creation failed: ", parsed$message)
-      return(list(id = NA, overwrite_used = FALSE))
-    }
-
-    message("Project already exists, retrying with overwrite")
-    resp   <- do_create(overwrite = TRUE)
-    parsed <- httr::content(resp, as = "parsed", encoding = "UTF-8")
-
-    if (httr::status_code(resp) >= 300) {
-      message("Dataset creation failed even with overwrite: ", parsed$message)
-      return(list(id = NA, overwrite_used = FALSE))
-    }
-
-    return(list(id = parsed$id, overwrite_used = TRUE))
+    message("Dataset creation failed: ", parsed$message)
+    return(NA)
   }
 
-  list(id = parsed$id, overwrite_used = FALSE)
+  parsed$id
 }
 
 # This function uploads the microdata file to the project created using create_project(), and generates statistics for microdata variables
-upload_microdata_file <- function(project_id, file_path, ME_API_KEY, description = NULL, overwrite = FALSE) {
+upload_microdata_file <- function(project_id, file_path, ME_API_KEY, description = NULL) {
   stata_ver  <- get_stata_version(file_path)
   base_name  <- tools::file_path_sans_ext(basename(file_path))
   new_name   <- paste0(base_name, "_Stata", stata_ver, ".dta")
@@ -89,7 +68,7 @@ upload_microdata_file <- function(project_id, file_path, ME_API_KEY, description
   url <- paste0(METADATA_API_BASE, "jobs/import_microdata/", project_id)
   body <- list(
     file       = httr::upload_file(upload_path),
-    overwrite  = if (overwrite) 1 else 0,
+    overwrite  = 1,
     store_data = "store"
   )
   if (!is.null(description) && nzchar(trimws(description))) {
@@ -134,11 +113,11 @@ create_resource <- function(project_id, resource_body, file_path, ME_API_KEY) {
   if (!is.null(parsed$id)) parsed$id else TRUE
 }
 
-publish_project<- function(project_id, ME_API_KEY, catalog_connection_id, classification, publish_metadata = TRUE, publish_thumbnail = TRUE, publish_resources = TRUE) {
+publish_project<- function(project_id, ME_API_KEY, catalog_connection_id, classification = NA_character_, publish_metadata = TRUE, publish_thumbnail = TRUE, publish_resources = TRUE) {
 
   url <- paste0(METADATA_API_BASE, "jobs/publish_to_nada")
 
-  access_policy <- if (classification == "Confidential") "licensed" else "public"
+  access_policy <- if (!is.na(classification) && classification == "Confidential") "licensed" else "public"
 
   options <- list(
     overwrite     = "yes",

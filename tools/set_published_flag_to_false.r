@@ -26,6 +26,7 @@ sc <- spark_connect(method = "databricks")
 
 # COMMAND ----------
 
+if (length(ids) == 0) stop("No ids provided")
 DBI::dbExecute(sc, paste0("
   UPDATE ", METADATA_TABLE, "
   SET published = FALSE

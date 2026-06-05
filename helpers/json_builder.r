@@ -95,7 +95,7 @@ make_mdl_json <- function(row, countries_names) {
     collection_ids = list(REPOSITORY_ID),
     template_uid = "microdata-system-en",
     type = "microdata",
-    overwrite = "no",
+    overwrite = "yes",
 
     doc_desc = list(
       title = row$filename,
