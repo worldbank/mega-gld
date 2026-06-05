@@ -90,7 +90,10 @@ ___
 **harmonized_json_publication:** forthcoming
 <br>
 <br>
-
+## Tools
+> The `tools` folder contains specific scripts that can aide in the management of the pipeline, but are not part of it. 
+<br>
+<br>
 ## Tests
 > To run API Integration tests, please set the RUN_API_INTEGRATION flag in the API Integration Tests Config section of the `helpers/config` file to TRUE. 
 
