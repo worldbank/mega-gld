@@ -3,6 +3,10 @@
 
 # COMMAND ----------
 
+# IMPORTANT: To republish microdata files after offline edits, verify the new files have synced to the volume BEFORE setting the "published" flag to FALSE. Republishing before the sync completes will push the old files.
+
+# COMMAND ----------
+
 library(dplyr)
 library(sparklyr)
 library(DBI)
