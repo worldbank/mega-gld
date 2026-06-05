@@ -83,8 +83,10 @@ if (is_databricks()) {
     }
   
     # 1 create dataset
-    project_id <- create_project(json_obj, ME_API_KEY)
-    if (is.na(project_id)) {return(NULL)}
+    created <- create_project(json_obj, ME_API_KEY)
+    if (is.na(created$id)) {return(NULL)}
+    project_id      <- created$id
+    overwrite_resources <- created$overwrite_used
     message("Project created, project_id = ", project_id)
 
     # 2 get and upload file
@@ -203,7 +205,7 @@ if (is_databricks()) {
     }
 
     # 4 publish project
-    publish <- publish_project(project_id, ME_API_KEY, catalog_connection_id = CATALOG_CONN_ID)
+    publish <- publish_project(project_id, ME_API_KEY, catalog_connection_id = CATALOG_CONN_ID, classification = row$classification, overwrite_resources = overwrite_resources)
     if (publish$success) {
         cat("Published:", paste0("https://microdatalibqa.worldbank.org/index.php/catalog/study/", idno), "\n")
     } else {

@@ -36,25 +36,45 @@ with_retry <- function(f, max_attempts = 3, wait_secs = 60) {
   stop(sprintf("All %d attempts failed: %s", max_attempts, conditionMessage(result)))
 }
 
-# This function creates an project in the Metadata Editor by uploading the json file
+# This function creates a project in the Metadata Editor by uploading the json file.
+# If the project already exists, retries with overwrite = TRUE.
+# Returns list(id, overwrite_used) or list(id = NA, overwrite_used = FALSE) on failure.
 create_project <- function(json_data, ME_API_KEY){
   url <- paste0(METADATA_API_BASE, "editor/create/survey")
-  resp <- with_retry(function() httr::POST(
-    url,
-    httr::add_headers(`X-API-KEY` = ME_API_KEY),
-    httr::timeout(60),
-    body = json_data,
-    encode = "json"
-  ))
-  
-  parsed <- httr::content(resp, as = "parsed", encoding = "UTF-8")
-  
-  if (httr::status_code(resp) >= 300) {
-    message("Dataset creation failed ", parsed$message)
-    return(NA)
+
+  do_create <- function(overwrite) {
+    body <- if (overwrite) c(json_data, list(overwrite = TRUE)) else json_data
+    with_retry(function() httr::POST(
+      url,
+      httr::add_headers(`X-API-KEY` = ME_API_KEY),
+      httr::timeout(60),
+      body   = body,
+      encode = "json"
+    ))
   }
-  
-  parsed$id
+
+  resp   <- do_create(overwrite = FALSE)
+  parsed <- httr::content(resp, as = "parsed", encoding = "UTF-8")
+
+  if (httr::status_code(resp) >= 300) {
+    if (httr::status_code(resp) != 400 || !grepl("already exists", parsed$message, fixed = TRUE)) {
+      message("Dataset creation failed: ", parsed$message)
+      return(list(id = NA, overwrite_used = FALSE))
+    }
+
+    message("Project already exists, retrying with overwrite")
+    resp   <- do_create(overwrite = TRUE)
+    parsed <- httr::content(resp, as = "parsed", encoding = "UTF-8")
+
+    if (httr::status_code(resp) >= 300) {
+      message("Dataset creation failed even with overwrite: ", parsed$message)
+      return(list(id = NA, overwrite_used = FALSE))
+    }
+
+    return(list(id = parsed$id, overwrite_used = TRUE))
+  }
+
+  list(id = parsed$id, overwrite_used = FALSE)
 }
 
 # This function uploads the microdata file to the project created using create_project(), and generates statistics for microdata variables
@@ -115,22 +135,30 @@ create_resource <- function(project_id, resource_body, file_path, ME_API_KEY) {
 }
 
 
-publish_project<- function(project_id, ME_API_KEY, catalog_connection_id, publish_metadata = TRUE, publish_thumbnail = TRUE, publish_resources = TRUE) {
-  
+publish_project<- function(project_id, ME_API_KEY, catalog_connection_id, classification, overwrite_resources = FALSE, publish_metadata = TRUE, publish_thumbnail = TRUE, publish_resources = TRUE) {
+
   url <- paste0(METADATA_API_BASE, "jobs/publish_to_nada")
 
+  access_policy <- if (classification == "Confidential") "licensed" else "public"
+
+  options <- list(
+    overwrite     = "yes",
+    published     = 1,
+    access_policy = access_policy,
+    repositoryid  = "GLD"
+  )
+
+  if (overwrite_resources) {
+    options[["delete_nada_resources"]] <- TRUE
+  }
+
   body <- list(
-    project_id           = project_id,
+    project_id            = project_id,
     catalog_connection_id = catalog_connection_id,
-    publish_metadata     = publish_metadata,
-    publish_thumbnail    = publish_thumbnail,
-    publish_resources    = publish_resources,
-    options              = list(
-      overwrite = "yes",
-      published = 1,
-      access_policy = "public",
-      repositoryid = "GLD"
-    )
+    publish_metadata      = publish_metadata,
+    publish_thumbnail     = publish_thumbnail,
+    publish_resources     = publish_resources,
+    options               = options
   )
 
   resp <- httr::POST(
