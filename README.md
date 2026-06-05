@@ -91,7 +91,7 @@ ___
 <br>
 <br>
 ## Tools
-> The `tools` folder contains specific scripts that can aide in the management of the pipeline, but are not part of it. 
+> The `tools` folder contains specific scripts that can aid in the management of the pipeline, but are not part of it. 
 <br>
 <br>
 ## Tests
