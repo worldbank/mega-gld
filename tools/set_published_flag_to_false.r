@@ -1,5 +1,5 @@
 # Databricks notebook source
-# This notebook is not part of the main pipeline. It can be used to set the "published" flag in _ingestion_metadata to FALSE. As a result, the dataset will be re-published next time the main pieline runs. 
+# This notebook is not part of the main pipeline. It can be used to set the "published" flag in _ingestion_metadata to FALSE. As a result, the dataset will be re-published next time the main pipeline runs. 
 
 # COMMAND ----------
 
