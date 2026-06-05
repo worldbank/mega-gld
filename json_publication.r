@@ -88,11 +88,12 @@ if (is_databricks()) {
     message("Project created, project_id = ", project_id)
 
     # 2 get and upload file
-    file_description <- paste0("Harmonized Dataset of the ", row$year, " ", row$nation_name, " ", row$survey_extended) 
+    file_description <- paste0("Harmonized Dataset of the ", row$year, " ", row$nation_name, " ", row$survey_extended)
     file_id <- upload_microdata_file(project_id, dta_path, ME_API_KEY, description = file_description)
     if (is.na(file_id)) return(NULL)
     message("Dataset uploaded to project, file_id = ", file_id)
-    
+
+
     # 3 upload external resources
     author    <- get_author(row)
     doc_root  <- path_dir(path_dir(path_dir(dta_path)))

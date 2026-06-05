@@ -131,19 +131,16 @@ if (is_databricks()) {
     }
 
     # 1 create project
+    is_ouo         <- grepl("HARMONIZED_OUO", fname_base)
+    classification <- if (is_ouo) "Official Use" else "Confidential"
+
     project_id <- create_project(json_obj, ME_API_KEY)
     if (is.na(project_id)) {
-      message("Project already exists, fetching existing project id...")
-      project_id <- get_project_id_by_idno(idno, ME_API_KEY)
-      print(project_id)
-      if (is.na(project_id)) {
-        message("ERROR: Could not retrieve existing project")
-        return(NULL)
-      }
-      message("Found existing project_id = ", project_id)
+      message("ERROR: Could not create project")
+      return(NULL)
     } else {
       message("Dataset created, project_id = ", project_id)
-      publish <- publish_project(project_id, ME_API_KEY, catalog_connection_id = CATALOG_CONN_ID)
+      publish <- publish_project(project_id, ME_API_KEY, catalog_connection_id = CATALOG_CONN_ID, classification = classification)
         if (publish$success) {
             message("Published:", paste0("https://microdatalibqa.worldbank.org/index.php/catalog/study/", idno), "\n")
             print(project_id)
@@ -210,7 +207,6 @@ if (is_databricks()) {
 
     # 5 update ingestion metadata and cleanup
     if (isTRUE(publish$success)) {
-      is_ouo <- grepl("HARMONIZED_OUO", fname_base)
       published_version <- as.integer(sub(".*_V([0-9]+)$", "\\1", fname_base))
       published_column <- if (is_ouo) {"stacked_ouo_published"} else {"stacked_all_published"}
       version_column <- if (is_ouo) {"stacked_ouo_table_version"} else {"stacked_all_table_version"}

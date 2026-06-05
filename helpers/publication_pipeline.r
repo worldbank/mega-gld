@@ -36,24 +36,23 @@ with_retry <- function(f, max_attempts = 3, wait_secs = 60) {
   stop(sprintf("All %d attempts failed: %s", max_attempts, conditionMessage(result)))
 }
 
-# This function creates an project in the Metadata Editor by uploading the json file
+# This function creates a project in the Metadata Editor by uploading the json file
 create_project <- function(json_data, ME_API_KEY){
   url <- paste0(METADATA_API_BASE, "editor/create/survey")
   resp <- with_retry(function() httr::POST(
     url,
     httr::add_headers(`X-API-KEY` = ME_API_KEY),
     httr::timeout(60),
-    body = json_data,
+    body   = json_data,
     encode = "json"
   ))
-  
   parsed <- httr::content(resp, as = "parsed", encoding = "UTF-8")
-  
+
   if (httr::status_code(resp) >= 300) {
-    message("Dataset creation failed ", parsed$message)
+    message("Dataset creation failed: ", parsed$message)
     return(NA)
   }
-  
+
   parsed$id
 }
 
@@ -69,7 +68,7 @@ upload_microdata_file <- function(project_id, file_path, ME_API_KEY, description
   url <- paste0(METADATA_API_BASE, "jobs/import_microdata/", project_id)
   body <- list(
     file       = httr::upload_file(upload_path),
-    overwrite  = 0,
+    overwrite  = 1,
     store_data = "store"
   )
   if (!is.null(description) && nzchar(trimws(description))) {
@@ -114,25 +113,27 @@ create_resource <- function(project_id, resource_body, file_path, ME_API_KEY) {
   if (!is.null(parsed$id)) parsed$id else TRUE
 }
 
+publish_project<- function(project_id, ME_API_KEY, catalog_connection_id, classification = NA_character_, publish_metadata = TRUE, publish_thumbnail = TRUE, publish_resources = TRUE) {
 
-publish_project<- function(project_id, ME_API_KEY, catalog_connection_id, classification, publish_metadata = TRUE, publish_thumbnail = TRUE, publish_resources = TRUE) {
-  
   url <- paste0(METADATA_API_BASE, "jobs/publish_to_nada")
 
-  access_policy <- if (classification == "Confidential") "licensed" else "public"
+  access_policy <- if (!is.na(classification) && classification == "Confidential") "licensed" else "public"
+
+  options <- list(
+    overwrite     = "yes",
+    published     = 1,
+    access_policy = access_policy,
+    repositoryid  = "GLD"
+  )
+
 
   body <- list(
-    project_id           = project_id,
+    project_id            = project_id,
     catalog_connection_id = catalog_connection_id,
-    publish_metadata     = publish_metadata,
-    publish_thumbnail    = publish_thumbnail,
-    publish_resources    = publish_resources,
-    options              = list(
-      overwrite = "yes",
-      published = 1,
-      access_policy = access_policy,
-      repositoryid = "GLD"
-    )
+    publish_metadata      = publish_metadata,
+    publish_thumbnail     = publish_thumbnail,
+    publish_resources     = publish_resources,
+    options               = options
   )
 
   resp <- httr::POST(
