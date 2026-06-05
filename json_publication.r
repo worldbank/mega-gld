@@ -83,19 +83,19 @@ if (is_databricks()) {
     }
   
     # 1 create dataset
-    created <- create_project(json_obj, ME_API_KEY)
+    created    <- create_project(json_obj, ME_API_KEY)
     if (is.na(created$id)) {return(NULL)}
-    project_id      <- created$id
-    overwrite_resources <- created$overwrite_used
+    project_id <- created$id
     message("Project created, project_id = ", project_id)
 
     # 2 get and upload file
-    file_description <- paste0("Harmonized Dataset of the ", row$year, " ", row$nation_name, " ", row$survey_extended) 
-    file_id <- upload_microdata_file(project_id, dta_path, ME_API_KEY, description = file_description)
+    file_description <- paste0("Harmonized Dataset of the ", row$year, " ", row$nation_name, " ", row$survey_extended)
+    file_id <- upload_microdata_file(project_id, dta_path, ME_API_KEY, description = file_description, overwrite = created$overwrite_used)
     if (is.na(file_id)) return(NULL)
     message("Dataset uploaded to project, file_id = ", file_id)
-    
+
     # 3 upload external resources
+    if (created$overwrite_used) delete_all_resources(project_id, ME_API_KEY)
     author    <- get_author(row)
     doc_root  <- path_dir(path_dir(path_dir(dta_path)))
     doc_dir   <- path(doc_root, "Doc")

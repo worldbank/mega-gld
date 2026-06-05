@@ -78,7 +78,7 @@ create_project <- function(json_data, ME_API_KEY){
 }
 
 # This function uploads the microdata file to the project created using create_project(), and generates statistics for microdata variables
-upload_microdata_file <- function(project_id, file_path, ME_API_KEY, description = NULL) {
+upload_microdata_file <- function(project_id, file_path, ME_API_KEY, description = NULL, overwrite = FALSE) {
   stata_ver  <- get_stata_version(file_path)
   base_name  <- tools::file_path_sans_ext(basename(file_path))
   new_name   <- paste0(base_name, "_Stata", stata_ver, ".dta")
@@ -89,7 +89,7 @@ upload_microdata_file <- function(project_id, file_path, ME_API_KEY, description
   url <- paste0(METADATA_API_BASE, "jobs/import_microdata/", project_id)
   body <- list(
     file       = httr::upload_file(upload_path),
-    overwrite  = 0,
+    overwrite  = if (overwrite) 1 else 0,
     store_data = "store"
   )
   if (!is.null(description) && nzchar(trimws(description))) {
@@ -134,6 +134,20 @@ create_resource <- function(project_id, resource_body, file_path, ME_API_KEY) {
   if (!is.null(parsed$id)) parsed$id else TRUE
 }
 
+
+# Deletes all external resources for a project in the Metadata Editor
+delete_all_resources <- function(project_id, ME_API_KEY) {
+  list_url <- paste0(METADATA_API_BASE, "resources/", project_id)
+  resp     <- httr::GET(list_url, httr::add_headers(`X-API-KEY` = ME_API_KEY))
+  if (httr::status_code(resp) >= 300) return(invisible(NULL))
+
+  resources <- httr::content(resp, as = "parsed", encoding = "UTF-8")
+  lapply(resources, function(r) {
+    del_url <- paste0(METADATA_API_BASE, "resources/delete/", project_id, "/", r$id)
+    httr::POST(del_url, httr::add_headers(`X-API-KEY` = ME_API_KEY))
+  })
+  invisible(NULL)
+}
 
 publish_project<- function(project_id, ME_API_KEY, catalog_connection_id, classification, overwrite_resources = FALSE, publish_metadata = TRUE, publish_thumbnail = TRUE, publish_resources = TRUE) {
 
