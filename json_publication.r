@@ -94,6 +94,7 @@ if (is_databricks()) {
     if (is.na(file_id)) return(NULL)
     message("Dataset uploaded to project, file_id = ", file_id)
 
+
     # 3 upload external resources
     author    <- get_author(row)
     doc_root  <- path_dir(path_dir(path_dir(dta_path)))
@@ -204,7 +205,7 @@ if (is_databricks()) {
     }
 
     # 4 publish project
-    publish <- publish_project(project_id, ME_API_KEY, catalog_connection_id = CATALOG_CONN_ID, classification = row$classification, overwrite_resources = overwrite_resources)
+    publish <- publish_project(project_id, ME_API_KEY, catalog_connection_id = CATALOG_CONN_ID, classification = row$classification)
     if (publish$success) {
         cat("Published:", paste0("https://microdatalibqa.worldbank.org/index.php/catalog/study/", idno), "\n")
     } else {

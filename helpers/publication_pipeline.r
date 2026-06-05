@@ -134,9 +134,7 @@ create_resource <- function(project_id, resource_body, file_path, ME_API_KEY) {
   if (!is.null(parsed$id)) parsed$id else TRUE
 }
 
-
-
-publish_project<- function(project_id, ME_API_KEY, catalog_connection_id, classification, overwrite_resources = FALSE, publish_metadata = TRUE, publish_thumbnail = TRUE, publish_resources = TRUE) {
+publish_project<- function(project_id, ME_API_KEY, catalog_connection_id, classification, publish_metadata = TRUE, publish_thumbnail = TRUE, publish_resources = TRUE) {
 
   url <- paste0(METADATA_API_BASE, "jobs/publish_to_nada")
 
@@ -149,9 +147,6 @@ publish_project<- function(project_id, ME_API_KEY, catalog_connection_id, classi
     repositoryid  = "GLD"
   )
 
-  if (overwrite_resources) {
-    options[["delete_nada_resources"]] <- TRUE
-  }
 
   body <- list(
     project_id            = project_id,
