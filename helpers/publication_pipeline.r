@@ -43,7 +43,7 @@ create_project <- function(json_data, ME_API_KEY){
   url <- paste0(METADATA_API_BASE, "editor/create/survey")
 
   do_create <- function(overwrite) {
-    body <- if (overwrite) c(json_data, list(overwrite = TRUE)) else json_data
+    body <- if (overwrite) modifyList(json_data, list(overwrite = "yes")) else json_data
     with_retry(function() httr::POST(
       url,
       httr::add_headers(`X-API-KEY` = ME_API_KEY),
