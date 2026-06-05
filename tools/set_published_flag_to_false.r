@@ -18,7 +18,7 @@ library(DBI)
 
 # If you need to republish multiple tables, you may query the _ingestion_metadata table and assign the filename column to ids
 
-ids <- c("AFG_2019_IELFS_V01_M_V01_A_GLD", "AFG_2013_LCS_V01_M_V01_A_GLD", "AFG_2016_LCS_V01_M_V01_A_GLD")
+ids <- character(0)
 
 # COMMAND ----------
 
