@@ -95,7 +95,6 @@ if (is_databricks()) {
     message("Dataset uploaded to project, file_id = ", file_id)
 
     # 3 upload external resources
-    if (created$overwrite_used) delete_all_resources(project_id, ME_API_KEY)
     author    <- get_author(row)
     doc_root  <- path_dir(path_dir(path_dir(dta_path)))
     doc_dir   <- path(doc_root, "Doc")

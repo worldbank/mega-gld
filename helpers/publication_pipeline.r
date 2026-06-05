@@ -135,19 +135,6 @@ create_resource <- function(project_id, resource_body, file_path, ME_API_KEY) {
 }
 
 
-# Deletes all external resources for a project in the Metadata Editor
-delete_all_resources <- function(project_id, ME_API_KEY) {
-  list_url <- paste0(METADATA_API_BASE, "resources/", project_id)
-  resp     <- httr::GET(list_url, httr::add_headers(`X-API-KEY` = ME_API_KEY))
-  if (httr::status_code(resp) >= 300) return(invisible(NULL))
-
-  resources <- httr::content(resp, as = "parsed", encoding = "UTF-8")
-  lapply(resources, function(r) {
-    del_url <- paste0(METADATA_API_BASE, "resources/delete/", project_id, "/", r$id)
-    httr::POST(del_url, httr::add_headers(`X-API-KEY` = ME_API_KEY))
-  })
-  invisible(NULL)
-}
 
 publish_project<- function(project_id, ME_API_KEY, catalog_connection_id, classification, overwrite_resources = FALSE, publish_metadata = TRUE, publish_thumbnail = TRUE, publish_resources = TRUE) {
 
