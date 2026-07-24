@@ -1,16 +1,9 @@
 # Databricks notebook source
-if (!requireNamespace("nadar", quietly = TRUE)) {
-  remotes::install_github("mah0001/nadar")
-}
-
-# COMMAND ----------
-
 library(httr)
 library(fs)
 library(zip)
 library(sparklyr)
 library(DBI)
-library(nadar)
 
 # COMMAND ----------
 
@@ -231,28 +224,200 @@ upload_resource <- function(project_id, file_path, resource_body,
 
 # COMMAND ----------
 
-# This function creates the catalog table, uploads the zipped CSV in resumable chunks, and imports it, via nadar::nada_admin_data_table_publish()
-publish_table_file <- function(db_id, table_id, file_path, title, description, NADA_API_KEY,
-                                chunk_size = 5 * 1024 * 1024) {
-  result <- with_retry(function() nadar::nada_admin_data_table_publish(
-    db_id          = db_id,
-    table_id       = table_id,
-    table_metadata = list(title = title, description = description),
-    csvfile        = file_path,
-    api_key        = NADA_API_KEY,
-    api_base_url   = MICRODATA_API_BASE,
-    use_resumable  = TRUE,
-    chunk_size     = chunk_size,
-    sleep_seconds  = 1
-  ))
+# This function safely parses a NADA API JSON response body, falling back to raw text if parsing fails
+parse_nada_response <- function(resp) {
+  tryCatch(
+    httr::content(resp, as = "parsed", encoding = "UTF-8"),
+    error = function(e) httr::content(resp, as = "text", encoding = "UTF-8")
+  )
+}
 
-  if (is.null(result$csv_import)) {
-    message("Table publish failed: ", result$upload_result$response$message)
+# This function checks whether a NADA API response succeeded at both the HTTP and JSON-payload level
+# (a "status": "error" body can come back with HTTP 200, so the HTTP status code alone is not reliable)
+nada_request_ok <- function(resp, parsed) {
+  httr::status_code(resp) == 200 &&
+    is.list(parsed) &&
+    (is.null(parsed$status) || identical(parsed$status, "success"))
+}
+
+# This function extracts a human-readable error message from a NADA API response
+nada_error_message <- function(resp, parsed) {
+  if (is.list(parsed) && !is.null(parsed$message)) {
+    parsed$message
+  } else {
+    httr::content(resp, as = "text", encoding = "UTF-8")
+  }
+}
+
+# This function POSTs a JSON body to a NADA API endpoint and returns the response alongside its parsed body
+nada_post_json <- function(endpoint, NADA_API_KEY, body, timeout_secs = 60) {
+  resp <- with_retry(function() httr::POST(
+    paste0(MICRODATA_API_BASE, endpoint),
+    httr::add_headers(`X-API-KEY` = NADA_API_KEY),
+    httr::timeout(timeout_secs),
+    body   = body,
+    encode = "json"
+  ))
+  list(resp = resp, parsed = parse_nada_response(resp))
+}
+
+# This function creates a new table in the microdata catalog with title and description
+create_table <- function(db_id, table_id, title, description, NADA_API_KEY) {
+  result <- nada_post_json(
+    paste0("tables/create_table/", db_id, "/", table_id),
+    NADA_API_KEY,
+    list(title = title, description = description)
+  )
+
+  if (!nada_request_ok(result$resp, result$parsed)) {
+    message("Table creation failed [HTTP ", httr::status_code(result$resp), "]: ", nada_error_message(result$resp, result$parsed))
     return(NA)
   }
 
-  message("Table published, import status: ", result$csv_import$import_complete)
-  result
+  message("Table created: ", table_id)
+  TRUE
+}
+
+# This function uploads a data file to the NADA resumable-upload API in chunks and returns the resulting upload_id
+upload_file_resumable <- function(file_path, NADA_API_KEY, chunk_size = 5 * 1024 * 1024) {
+  file_size <- file.info(file_path)$size
+  total_chunks <- as.integer(ceiling(file_size / chunk_size))
+  filename <- basename(file_path)
+
+  init <- nada_post_json(
+    "uploads/init",
+    NADA_API_KEY,
+    list(filename = filename, total_size = file_size, total_chunks = total_chunks, chunk_size = chunk_size)
+  )
+
+  if (!nada_request_ok(init$resp, init$parsed) || is.null(init$parsed$upload_id)) {
+    message("Resumable upload init failed: ", nada_error_message(init$resp, init$parsed))
+    return(NA)
+  }
+
+  upload_id <- init$parsed$upload_id
+
+  con <- file(file_path, "rb")
+  on.exit(close(con))
+
+  for (chunk_num in seq_len(total_chunks) - 1L) {
+    read_size  <- if (chunk_num == total_chunks - 1) file_size - chunk_num * chunk_size else chunk_size
+    chunk_data <- readBin(con, "raw", read_size)
+
+    chunk_resp <- with_retry(function() httr::POST(
+      paste0(MICRODATA_API_BASE, "uploads/chunk/", upload_id),
+      httr::add_headers(
+        `X-API-KEY`             = NADA_API_KEY,
+        `Content-Type`          = "application/octet-stream",
+        `X-Upload-Chunk-Number` = as.character(chunk_num),
+        `X-Upload-Chunk-Size`   = as.character(length(chunk_data))
+      ),
+      httr::timeout(120),
+      body = chunk_data
+    ))
+    chunk_parsed <- parse_nada_response(chunk_resp)
+
+    if (!nada_request_ok(chunk_resp, chunk_parsed)) {
+      message("Upload chunk ", chunk_num, " failed: ", nada_error_message(chunk_resp, chunk_parsed))
+      return(NA)
+    }
+
+    message(sprintf("Uploaded chunk %d/%d", chunk_num + 1, total_chunks))
+  }
+
+  upload_id
+}
+
+# This function registers a resumable-uploaded file as the data source for a catalog table.
+# Only needed once per file - re-registering would start the import over, so it must not be called
+# again on a retry once import batches have already made progress.
+register_table_upload <- function(db_id, table_id, upload_id, title, description, NADA_API_KEY) {
+  register <- nada_post_json(
+    paste0("tables/upload/", db_id, "/", table_id),
+    NADA_API_KEY,
+    list(upload_id = upload_id, title = title, description = description)
+  )
+
+  if (!nada_request_ok(register$resp, register$parsed)) {
+    message("Table upload registration failed: ", nada_error_message(register$resp, register$parsed))
+    return(NA)
+  }
+
+  TRUE
+}
+
+# This function runs the batch import to completion, following the server's has_more/last_processed_row
+# progress until the whole file is imported. It is safe to call repeatedly/resume: each call just
+# continues wherever the last successful batch left off, so no rows are re-imported or lost on retry.
+run_import_loop <- function(db_id, table_id, NADA_API_KEY, max_rows = NULL, sleep_seconds = 1, max_batches = 1000) {
+  has_more <- TRUE
+  batch_count <- 0
+
+  import_body <- list(db_id = db_id, table_id = table_id)
+  if (!is.null(max_rows)) {
+    import_body$max_rows <- max_rows
+  }
+
+  while (has_more && batch_count < max_batches) {
+    if (batch_count > 0 && sleep_seconds > 0) Sys.sleep(sleep_seconds)
+
+    import <- nada_post_json("tables/import", NADA_API_KEY, import_body, timeout_secs = 300)
+    batch_count <- batch_count + 1
+    parsed <- import$parsed
+
+    if (!nada_request_ok(import$resp, parsed) || !is.list(parsed$progress)) {
+      message("Batch import failed on batch ", batch_count, ": ", nada_error_message(import$resp, parsed))
+      return(NA)
+    }
+
+    has_more <- isTRUE(parsed$progress$has_more)
+    message(sprintf("Import batch %d: %s rows processed", batch_count, parsed$progress$total_rows_processed))
+  }
+
+  if (has_more) {
+    message("Reached maximum batch limit of ", max_batches, " — import is incomplete")
+    return(NA)
+  }
+
+  TRUE
+}
+
+# This function publishes a table: creates it, uploads the data file in resumable chunks, and imports it.
+# It first tries to resume an import already in progress for this table_id (e.g. from a prior attempt that
+# got partway through a large import before failing elsewhere) by calling the import loop directly, skipping
+# create/upload entirely when that succeeds. This means a retry never re-uploads or re-imports rows that
+# were already safely committed - it only redoes create+upload when there's genuinely nothing to resume.
+publish_table_file <- function(db_id, table_id, file_path, title, description, NADA_API_KEY,
+                                chunk_size = 5 * 1024 * 1024, max_rows = NULL) {
+  if (isTRUE(run_import_loop(db_id, table_id, NADA_API_KEY, max_rows))) {
+    message("Table published, import complete: ", table_id)
+    return(TRUE)
+  }
+
+  table_created <- create_table(db_id, table_id, title, description, NADA_API_KEY)
+  if (identical(table_created, NA)) {
+    return(NA)
+  }
+
+  upload_id <- upload_file_resumable(file_path, NADA_API_KEY, chunk_size)
+  if (identical(upload_id, NA)) {
+    message("Table publish failed: upload did not complete")
+    return(NA)
+  }
+
+  registered <- register_table_upload(db_id, table_id, upload_id, title, description, NADA_API_KEY)
+  if (identical(registered, NA)) {
+    return(NA)
+  }
+
+  import_complete <- run_import_loop(db_id, table_id, NADA_API_KEY, max_rows = max_rows)
+  if (!isTRUE(import_complete)) {
+    message("Table publish failed: import did not complete")
+    return(NA)
+  }
+
+  message("Table published, import complete: ", table_id)
+  TRUE
 }
 
 
