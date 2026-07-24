@@ -207,7 +207,7 @@ if (is_databricks()) {
       for (i in seq_len(nrow(metadata_df))) {
         row <- metadata_df[i, ]
         
-        sparklyr::spark_sql(
+        DBI::dbExecute(
           sc,
           paste0(
             "UPDATE ", METADATA_TABLE, "
