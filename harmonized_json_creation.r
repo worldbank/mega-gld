@@ -27,6 +27,9 @@ if (!exists("get_unique_vec")) {
   source("helpers/harmonized_metadata_parsing.r")
 }
 
+
+# COMMAND ----------
+
 if (is_databricks()) {
   library(sparklyr)
   sc <- spark_connect(method = "databricks")
