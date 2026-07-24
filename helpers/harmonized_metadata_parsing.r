@@ -103,7 +103,7 @@ get_version_label <- function(sc, tbl_tracker, tbl_metadata, table_name_value) {
   }
 
   metadata_df <- tbl_metadata %>%
-    filter(table_name == table_name_value) %>%
+    { if (is_ouo_table) filter(., classification != "Confidential") else . } %>%
     collect()
 
   updates_df <- metadata_df %>%
