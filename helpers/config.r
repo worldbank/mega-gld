@@ -23,6 +23,7 @@ OUO_SCHEMA     <- "prd_mega.sgld48"
 METADATA_TABLE <- paste0(TARGET_SCHEMA, "._ingestion_metadata")
 HARMONIZED_ALL <- paste0(TARGET_SCHEMA, ".gld_harmonized_all")
 HARMONIZED_OFFICIAL <- paste0(TARGET_SCHEMA, ".gld_harmonized_ouo")
+TRACKER_TABLE <- paste0(TARGET_SCHEMA, "._harmonized_version_publication_tracker")
 
 # GitHub (for documentation links)
 GH_OWNER  <- "worldbank"

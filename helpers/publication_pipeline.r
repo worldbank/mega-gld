@@ -1,9 +1,16 @@
 # Databricks notebook source
+if (!requireNamespace("nadar", quietly = TRUE)) {
+  remotes::install_github("mah0001/nadar")
+}
+
+# COMMAND ----------
+
 library(httr)
 library(fs)
 library(zip)
 library(sparklyr)
 library(DBI)
+library(nadar)
 
 # COMMAND ----------
 
@@ -220,59 +227,32 @@ upload_resource <- function(project_id, file_path, resource_body,
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC #### Functions specific to long-wide tables
+# MAGIC #### Functions specific to harmonized tables
 
 # COMMAND ----------
 
-# This function creates a new table in the microdata catalog with title and description
-create_table <- function(db_id, table_id, title, description, NADA_API_KEY) {
-  url <- paste0(MICRODATA_API_BASE, "tables/create_table/", db_id, "/", table_id)
-
-  resp <- with_retry(function() httr::POST(
-    url,
-    httr::add_headers(`X-API-KEY` = NADA_API_KEY, `Accept` = "application/json"),
-    httr::timeout(60),
-    body   = list(title = title, description = description),
-    encode = "json"
+# This function creates the catalog table, uploads the zipped CSV in resumable chunks, and imports it, via nadar::nada_admin_data_table_publish()
+publish_table_file <- function(db_id, table_id, file_path, title, description, NADA_API_KEY,
+                                chunk_size = 5 * 1024 * 1024) {
+  result <- with_retry(function() nadar::nada_admin_data_table_publish(
+    db_id          = db_id,
+    table_id       = table_id,
+    table_metadata = list(title = title, description = description),
+    csvfile        = file_path,
+    api_key        = NADA_API_KEY,
+    api_base_url   = MICRODATA_API_BASE,
+    use_resumable  = TRUE,
+    chunk_size     = chunk_size,
+    sleep_seconds  = 1
   ))
 
-  raw_text <- httr::content(resp, as = "text", encoding = "UTF-8")
-
-  if (httr::status_code(resp) >= 300) {
-    message("Table creation failed [HTTP ", httr::status_code(resp), "]: ", raw_text)
+  if (is.null(result$csv_import)) {
+    message("Table publish failed: ", result$upload_result$response$message)
     return(NA)
   }
 
-  parsed <- jsonlite::fromJSON(raw_text, simplifyVector = FALSE)
-  message("Table created: ", parsed$message)
-  TRUE
-}
-
-# This function uploads a zipped CSV file to the catalog table created by create_table()
-upload_table_file <- function(db_id, table_id, file_path, title, description, NADA_API_KEY) {
-  url <- paste0(MICRODATA_API_BASE, "tables/upload/", db_id, "/", table_id)
-
-  resp <- with_retry(function() httr::POST(
-    url,
-    httr::add_headers(`X-API-KEY` = NADA_API_KEY),
-    httr::timeout(300),
-    body = list(
-      file        = httr::upload_file(file_path),
-      title       = title,
-      description = description
-    ),
-    encode = "multipart"
-  ))
-
-  parsed <- httr::content(resp, as = "parsed", encoding = "UTF-8")
-
-  if (httr::status_code(resp) >= 300) {
-    message("Table upload failed: ", parsed$message)
-    return(NA)
-  }
-
-  message("Table uploaded, import status: ", parsed$import_status)
-  parsed$import_status
+  message("Table published, import status: ", result$csv_import$import_complete)
+  result
 }
 
 
@@ -297,6 +277,23 @@ attach_table_to_study <- function(db_id, table_id, idno, NADA_API_KEY) {
   }
 
   isTRUE(parsed$result)
+}
+
+# This function records a published harmonized release in the version publication tracker table
+record_published_version <- function(sc, filename, table_name, v_version, table_version, version_notes) {
+  row <- tibble::tibble(
+    filename      = filename,
+    table_name    = table_name,
+    v_version     = as.integer(v_version),
+    table_version = as.integer(table_version),
+    version_notes = version_notes
+  )
+
+  sparklyr::sdf_copy_to(sc, row, "tmp_tracker_row", overwrite = TRUE)
+  DBI::dbExecute(sc, paste0("INSERT INTO ", TRACKER_TABLE, " SELECT * FROM tmp_tracker_row"))
+  DBI::dbExecute(sc, "DROP TABLE IF EXISTS tmp_tracker_row")
+
+  message("Recorded published version: ", filename, " (v_version=", v_version, ", table_version=", table_version, ")")
 }
 
 

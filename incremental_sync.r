@@ -68,12 +68,17 @@ columns_sql <- paste(
   collapse = ", "
 )
 
+retention_properties <- "TBLPROPERTIES (
+  'delta.logRetentionDuration' = 'interval 36500 days',
+  'delta.deletedFileRetentionDuration' = 'interval 36500 days'
+)"
+
 if (SparkR::tableExists(HARMONIZED_ALL)) {
   harmonized_all <- tbl(sc, HARMONIZED_ALL)
 } else {
   create_query <- paste0(
     "CREATE TABLE ", HARMONIZED_ALL,
-    " (", columns_sql, ") USING DELTA"
+    " (", columns_sql, ") USING DELTA ", retention_properties
   )
   DBI::dbExecute(sc, create_query)
   harmonized_all <- tbl(sc, HARMONIZED_ALL)
@@ -84,7 +89,7 @@ if (SparkR::tableExists(HARMONIZED_OFFICIAL)) {
 } else {
   create_query <- paste0(
     "CREATE TABLE ", HARMONIZED_OFFICIAL,
-    " (", columns_sql, ") USING DELTA"
+    " (", columns_sql, ") USING DELTA ", retention_properties
   )
   DBI::dbExecute(sc, create_query)
   harmonized_ouo <- tbl(sc, HARMONIZED_OFFICIAL)

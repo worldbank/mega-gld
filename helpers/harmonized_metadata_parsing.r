@@ -33,22 +33,15 @@ get_year_range_chr <- function(tbl_data) {
   }
 }
 
-get_version <- function(tbl_metadata, table_name_value) {
-  is_ouo_table <- grepl("_ouo$", table_name_value)
-
-  version_column <- if (is_ouo_table) {
-    "stacked_ouo_published_version"
-  } else {
-    "stacked_all_published_version"
-  }
-
-  metadata_df <- tbl_metadata %>%
+get_version <- function(tbl_tracker, table_name_value) {
+  tracker_df <- tbl_tracker %>%
     filter(table_name == table_name_value) %>%
     collect()
 
-  last_version <- max(as.integer(metadata_df[[version_column]]),na.rm = TRUE)
+  versions <- as.integer(tracker_df$v_version)
+  versions <- versions[!is.na(versions)]
 
-  if (is.na(last_version) || is.infinite(last_version)) {1} else {last_version + 1}
+  if (length(versions) == 0) {1} else {max(versions) + 1}
 }
 
 build_update_label <- function(updates_df) {
@@ -73,14 +66,8 @@ build_update_label <- function(updates_df) {
   paste0("Updated data for ", paste(label_parts, collapse = "; "))
 }
 
-get_version_label <- function(sc, tbl_metadata, table_name_value) {
+get_version_label <- function(sc, tbl_tracker, tbl_metadata, table_name_value) {
   is_ouo_table <- grepl("_ouo$", table_name_value)
-
-  published_table_version_column <- if (is_ouo_table) {
-    "stacked_ouo_published_table_version"
-  } else {
-    "stacked_all_published_table_version"
-  }
 
   table_version_column <- if (is_ouo_table) {
     "stacked_ouo_table_version"
@@ -88,18 +75,18 @@ get_version_label <- function(sc, tbl_metadata, table_name_value) {
     "stacked_all_table_version"
   }
 
-  metadata_df <- tbl_metadata %>%
+  tracker_df <- tbl_tracker %>%
     filter(table_name == table_name_value) %>%
     collect()
 
-  last_published_version <- max(
-    as.integer(metadata_df[[published_table_version_column]]),
-    na.rm = TRUE
-  )
+  table_versions <- as.integer(tracker_df$table_version)
+  table_versions <- table_versions[!is.na(table_versions)]
 
-  if (is.infinite(last_published_version) || is.na(last_published_version)) {
+  if (length(table_versions) == 0) {
     return("")
   }
+
+  last_published_version <- max(table_versions)
 
   full_table_name <- paste0(TARGET_SCHEMA, ".", table_name_value)
 
@@ -114,6 +101,10 @@ get_version_label <- function(sc, tbl_metadata, table_name_value) {
   if (is.na(current_table_version) || current_table_version <= last_published_version) {
     return("")
   }
+
+  metadata_df <- tbl_metadata %>%
+    filter(table_name == table_name_value) %>%
+    collect()
 
   updates_df <- metadata_df %>%
     filter(
@@ -130,6 +121,7 @@ get_version_label <- function(sc, tbl_metadata, table_name_value) {
 build_harmonized_metadata <- function(
   sc,
   tbl_metadata,
+  tbl_tracker,
   tbl_all,
   tbl_ouo
 ) {
@@ -147,8 +139,8 @@ build_harmonized_metadata <- function(
     year            = map_chr(table_names, ~ get_year_range_chr(data_tables[[.x]])),
     quarter         = 'NA', #This variable is recoded as NA string since the quarter variable cannot be null for the stacking logic.
     survey          = NA_character_,
-    V_version       = map_int(table_names, ~ get_version(tbl_metadata, .x)),
-    version_label   = map_chr(table_names, ~ get_version_label(sc, tbl_metadata, .x)),
+    V_version       = map_int(table_names, ~ get_version(tbl_tracker, .x)),
+    version_label   = map_chr(table_names, ~ get_version_label(sc, tbl_tracker, tbl_metadata, .x)),
     classification  = if_else(grepl("_ouo$", table_names), "Official Use Only", "Confidential"),
     filename        = paste0(toupper(table_names), "_V", V_version),
     published       = FALSE,

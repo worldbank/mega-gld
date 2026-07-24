@@ -32,13 +32,15 @@ if (is_databricks()) {
   sc <- spark_connect(method = "databricks")
 
   metadata <- tbl(sc, METADATA_TABLE)
-  
+  tracker <- tbl(sc, TRACKER_TABLE)
+
   tbl_all <- tbl(sc,  paste0(TARGET_SCHEMA,".gld_harmonized_all"))
   tbl_ouo <- tbl(sc, paste0(TARGET_SCHEMA,".gld_harmonized_ouo"))
 
   metadata_harmonized <- build_harmonized_metadata(
     sc = sc,
     tbl_metadata = metadata,
+    tbl_tracker = tracker,
     tbl_all = tbl_all,
     tbl_ouo = tbl_ouo
   )

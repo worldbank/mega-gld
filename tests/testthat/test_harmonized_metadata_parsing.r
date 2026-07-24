@@ -46,21 +46,21 @@ test_that("get_year_range_chr returns empty string if all NA", {
 
 # ---- get_version ----
 test_that("get_version increments last version", {
-  tbl_metadata <- tibble(
+  tbl_tracker <- tibble(
     table_name = "gld_harmonized_all",
-    stacked_all_published_version = c("1", "2")
+    v_version = c(1, 2)
   )
 
-  expect_equal(get_version(tbl_metadata, "gld_harmonized_all"), 3)
+  expect_equal(get_version(tbl_tracker, "gld_harmonized_all"), 3)
 })
 
 test_that("get_version returns 1 if no prior versions", {
-  tbl_metadata <- tibble(
-    table_name = "gld_harmonized_all",
-    stacked_all_published_version = NA_character_
+  tbl_tracker <- tibble(
+    table_name = character(0),
+    v_version = integer(0)
   )
 
-  expect_equal(get_version(tbl_metadata, "gld_harmonized_all"), 1)
+  expect_equal(get_version(tbl_tracker, "gld_harmonized_all"), 1)
 })
 
 # ---- build_update_label ----

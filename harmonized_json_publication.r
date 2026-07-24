@@ -72,7 +72,6 @@ if (is_databricks()) {
     message("Table has ", row_count_table, " rows")
     
     tbl(sc, table_name) %>%
-      head(1000) %>%
       sparklyr::spark_write_csv(
         path   = csv_dir,
         mode   = "overwrite",
@@ -88,16 +87,17 @@ if (is_databricks()) {
     system(sprintf("for f in %s/part-*.csv; do tail -n +2 \"$f\"; done >> '%s'", csv_dir, local_csv))
     system(sprintf("zip -j '%s' '%s'", local_zip, local_csv))
 
+    row_count_csv <- as.integer(system(sprintf("unzip -p '%s' | wc -l", local_zip), intern = TRUE)) - 1L
+    message("CSV has ", row_count_csv, " rows (excluding header)")
+
+    if (row_count_table != row_count_csv) {
+      system(sprintf("rm -f '%s' '%s'", local_csv, local_zip))
+      stop("Row count mismatch! Table: ", row_count_table, ", CSV: ", row_count_csv)
+    }
+
     system(sprintf("cp '%s' '%s'", local_zip, zip_path))
     system(sprintf("rm -f '%s' '%s'", local_csv, local_zip))
-    
-    row_count_csv <- as.integer(system(sprintf("unzip -p '%s' | wc -l", zip_path), intern = TRUE)) - 1L
-    message("CSV has ", row_count_csv, " rows (excluding header)")
-    
-    # if (row_count_table != row_count_csv) {
-    #   stop("Row count mismatch! Table: ", row_count_table, ", CSV: ", row_count_csv)
-    # }
-    
+
     size_gb <- file.info(zip_path)$size / 1024^3
     message(sprintf("File size: %.2f GB", size_gb))
     
@@ -153,44 +153,23 @@ if (is_databricks()) {
     }
 
 
-    # 2 create catalog table
-    message("Creating catalog table...")
-    table_created <- create_table(
+    # 2 create catalog table, upload zipped CSV, and import
+    message("Publishing catalog table...")
+
+    table_result <- publish_table_file(
       db_id       = "GLD",
       table_id    = idno,
+      file_path   = csv_path,
       title       = json_obj$study_desc$title_statement$title,
       description = json_obj$study_desc$title_statement$title,
       NADA_API_KEY   = NADA_API_KEY
     )
-    if (is.na(table_created)) {
-      message("ERROR: Table creation failed")
+    if (identical(table_result, NA)) {
+      message("ERROR: Table publish failed")
       return(NULL)
     }
 
-    # 3 upload zipped CSV
-    message("Uploading table file...")
-
-    tmp_csv <- file.path("/tmp", paste0(fname_base, ".csv"))
-    system(sprintf("unzip -p '%s' > '%s'", csv_path, tmp_csv))
-    message("Unzipped to: ", tmp_csv, " (", file.info(tmp_csv)$size, " bytes)")
-
-
-    import_status <- upload_table_file(
-      db_id       = "GLD",
-      table_id    = idno,
-      #file_path   = csv_path,
-      file_path   = tmp_csv,
-      title       = json_obj$study_desc$title_statement$title,
-      description = json_obj$study_desc$title_statement$title,
-      NADA_API_KEY   = NADA_API_KEY
-    )
-    if (is.na(import_status)) {
-      message("ERROR: Table upload failed")
-      return(NULL)
-    }
-    message("Table upload complete, import status: ", import_status)
-
-    # 4 attach table to study
+    # 3 attach table to study
     message("Attaching table to study...")
     attached <- attach_table_to_study(
       db_id      = "GLD",
@@ -205,7 +184,7 @@ if (is_databricks()) {
     message("Table attached to study: ", idno)
 
 
-    # 5 update ingestion metadata and cleanup
+    # 4 update ingestion metadata and cleanup
     if (isTRUE(publish$success)) {
       published_version <- as.integer(sub(".*_V([0-9]+)$", "\\1", fname_base))
       published_column <- if (is_ouo) {"stacked_ouo_published"} else {"stacked_all_published"}
@@ -245,7 +224,16 @@ if (is_databricks()) {
       }
       
       message("Updated metadata: marked ", nrow(metadata_df), " records as published with version ", published_version)
-      
+
+      record_published_version(
+        sc            = sc,
+        filename      = idno,
+        table_name    = table_suffix,
+        v_version     = published_version,
+        table_version = current_table_version,
+        version_notes = json_obj$study_desc$version_statement$version_notes
+      )
+
       # Delete files after successful publish
       file.remove(jfile)
       message("Deleted json file: ", jfile)
