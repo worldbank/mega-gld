@@ -297,9 +297,11 @@ get_table_data_dictionary <- function(table_name, sc) {
   schema <- schema[!is.na(schema$col_name) & schema$col_name != "" & !grepl("^#", schema$col_name), ]
 
   lapply(seq_len(nrow(schema)), function(i) {
+    comment <- trimws(gsub("\\s+", " ", schema$comment[i]))
+    label   <- if (!is.na(comment) && nzchar(trimws(comment))) comment else schema$col_name[i]
     list(
       name      = schema$col_name[i],
-      label     = schema$col_name[i],
+      label     = label,
       data_type = map_spark_type_to_nada(schema$data_type[i])
     )
   })

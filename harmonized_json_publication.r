@@ -54,7 +54,7 @@ if (is_databricks()) {
     
     csv_dir  <- file.path(CSV_HARMONIZED, paste0(fname_base, "_temp"))
     csv_name <- paste0(fname_base, ".csv")
-    zip_path <- file.path(CSV_HARMONIZED, paste0(fname_base, ".csv.zip"))
+    zip_path <- file.path(CSV_HARMONIZED, paste0(fname_base, ".zip"))
     
     if (file.exists(zip_path)) {
       message("Found existing file: ", zip_path)
@@ -80,7 +80,7 @@ if (is_databricks()) {
     
     message("Combining part files into single zipped CSV...")
     local_csv <- file.path("/tmp", csv_name)
-    local_zip <- file.path("/tmp", paste0(fname_base, ".csv.zip"))
+    local_zip <- file.path("/tmp", paste0(fname_base, ".zip"))
 
     first_part <- list.files(csv_dir, pattern = "^part-.*\\.csv$", full.names = TRUE)[1]
     system(sprintf("head -1 '%s' > '%s'", first_part, local_csv))
@@ -123,7 +123,7 @@ if (is_databricks()) {
     table_suffix <- sub("^GLD_", "", table_suffix)
     table_name <- paste0(TARGET_SCHEMA,".", table_suffix)    
     
-    csv_path <- file.path(CSV_HARMONIZED, paste0(fname_base, ".csv.zip"))
+    csv_path <- file.path(CSV_HARMONIZED, paste0(fname_base, ".zip"))
     
     if (!file.exists(csv_path)) {
       message("ERROR: Compressed file not found: ", csv_path)
@@ -174,6 +174,7 @@ if (is_databricks()) {
 
     # 3 attach table to study
     message("Attaching table to study...")
+    Sys.sleep(90)
     attached <- attach_table_to_study(
       db_id      = "GLD",
       table_id   = idno,
@@ -207,23 +208,23 @@ if (is_databricks()) {
       metadata_df <- DBI::dbGetQuery(sc, query)
       message("Found ", nrow(metadata_df), " records to mark as published")
       
-      for (i in seq_len(nrow(metadata_df))) {
-        row <- metadata_df[i, ]
-        
+      if (nrow(metadata_df) > 0) {
+        updates_df <- metadata_df %>% mutate(published_version = published_version) %>% distinct()
+        copy_to(sc, updates_df, "tmp_published_updates", overwrite = TRUE)
+
         DBI::dbExecute(
           sc,
           paste0(
-            "UPDATE ", METADATA_TABLE, "
-            SET ", published_column, " = ", published_version, "
-            WHERE country = '", row$country, "'
-            AND year = '", row$year, "'
-            AND survey = '", row$survey, "'
-            AND quarter = '", row$quarter, "'
-            AND M_version = ", row$M_version, "
-            AND A_version = ", row$A_version, "
-            AND table_name = '", row$table_name, "'"
+            "MERGE INTO ", METADATA_TABLE, " t ",
+            "USING tmp_published_updates s ",
+            "ON t.country = s.country AND t.year = s.year AND t.survey = s.survey ",
+            "AND t.quarter = s.quarter AND t.M_version = s.M_version AND t.A_version = s.A_version ",
+            "AND t.table_name = s.table_name ",
+            "WHEN MATCHED THEN UPDATE SET t.", published_column, " = s.published_version"
           )
         )
+
+        DBI::dbExecute(sc, "DROP TABLE IF EXISTS tmp_published_updates")
       }
       
       message("Updated metadata: marked ", nrow(metadata_df), " records as published with version ", published_version)
