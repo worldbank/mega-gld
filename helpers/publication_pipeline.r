@@ -36,6 +36,31 @@ with_retry <- function(f, max_attempts = 3, wait_secs = 60) {
   stop(sprintf("All %d attempts failed: %s", max_attempts, conditionMessage(result)))
 }
 
+# This function safely parses an API JSON response body, falling back to raw text if parsing fails
+parse_api_response <- function(resp) {
+  tryCatch(
+    httr::content(resp, as = "parsed", encoding = "UTF-8"),
+    error = function(e) httr::content(resp, as = "text", encoding = "UTF-8")
+  )
+}
+
+# This function checks whether an API response succeeded at both the HTTP and JSON-payload level
+# (a "status": "error" body can come back with a 2xx HTTP code, so the HTTP status code alone is not reliable)
+api_request_ok <- function(resp, parsed) {
+  httr::status_code(resp) < 300 &&
+    is.list(parsed) &&
+    (is.null(parsed$status) || identical(parsed$status, "success"))
+}
+
+# This function extracts a human-readable error message from an API response
+api_error_message <- function(resp, parsed) {
+  if (is.list(parsed) && !is.null(parsed$message)) {
+    parsed$message
+  } else {
+    httr::content(resp, as = "text", encoding = "UTF-8")
+  }
+}
+
 # This function creates a project in the Metadata Editor by uploading the json file
 create_project <- function(json_data, ME_API_KEY){
   url <- paste0(METADATA_API_BASE, "editor/create/survey")
@@ -46,10 +71,10 @@ create_project <- function(json_data, ME_API_KEY){
     body   = json_data,
     encode = "json"
   ))
-  parsed <- httr::content(resp, as = "parsed", encoding = "UTF-8")
+  parsed <- parse_api_response(resp)
 
-  if (httr::status_code(resp) >= 300) {
-    message("Dataset creation failed: ", parsed$message)
+  if (!api_request_ok(resp, parsed)) {
+    message("Dataset creation failed: ", api_error_message(resp, parsed))
     return(NA)
   }
 
@@ -81,12 +106,13 @@ upload_microdata_file <- function(project_id, file_path, ME_API_KEY, description
     body = body,
     encode = "multipart"
   ))
+  parsed <- parse_api_response(resp)
 
-  if (httr::status_code(resp) >= 300) {
-    message("Microdata upload failed: ", httr::content(resp, as = "text", encoding = "UTF-8"))
+  if (!api_request_ok(resp, parsed)) {
+    message("Microdata upload failed: ", api_error_message(resp, parsed))
     return(NA)
   }
-  httr::content(resp, as = "parsed")$file_id
+  parsed$file_id
 }
 
 # This function creates an external resource in the Metadata Editor project by uploading a file through the Metadata API resources endpoint
@@ -103,13 +129,13 @@ create_resource <- function(project_id, resource_body, file_path, ME_API_KEY) {
     body   = body,
     encode = "multipart"
   ))
-  
-  if (httr::status_code(resp) >= 300) {
-    message("Resource creation failed: ", httr::content(resp, as = "text", encoding = "UTF-8"))
+  parsed <- parse_api_response(resp)
+
+  if (!api_request_ok(resp, parsed)) {
+    message("Resource creation failed: ", api_error_message(resp, parsed))
     return(NA)
   }
-  
-  parsed <- httr::content(resp, as = "parsed")
+
   if (!is.null(parsed$id)) parsed$id else TRUE
 }
 
@@ -136,19 +162,20 @@ publish_project<- function(project_id, ME_API_KEY, catalog_connection_id, classi
     options               = options
   )
 
-  resp <- httr::POST(
+  resp <- with_retry(function() httr::POST(
     url,
     httr::add_headers(`X-API-KEY` = ME_API_KEY),
+    httr::timeout(60),
     body   = body,
     encode = "json"
-  )
+  ))
 
-  parsed     <- httr::content(resp, as = "parsed", encoding = "UTF-8")
-  status_ok  <- httr::status_code(resp) < 300 && identical(parsed$status, "success")
+  parsed    <- parse_api_response(resp)
+  status_ok <- api_request_ok(resp, parsed)
 
   if (!status_ok) {
-    cat("Dataset publish failed: ", jsonlite::toJSON(parsed, auto_unbox = TRUE))
-    cat("project_id: ",            project_id)
+    message("Dataset publish failed: ", api_error_message(resp, parsed))
+    message("project_id: ", project_id)
   }
 
 
@@ -224,31 +251,6 @@ upload_resource <- function(project_id, file_path, resource_body,
 
 # COMMAND ----------
 
-# This function safely parses a NADA API JSON response body, falling back to raw text if parsing fails
-parse_nada_response <- function(resp) {
-  tryCatch(
-    httr::content(resp, as = "parsed", encoding = "UTF-8"),
-    error = function(e) httr::content(resp, as = "text", encoding = "UTF-8")
-  )
-}
-
-# This function checks whether a NADA API response succeeded at both the HTTP and JSON-payload level
-# (a "status": "error" body can come back with HTTP 200, so the HTTP status code alone is not reliable)
-nada_request_ok <- function(resp, parsed) {
-  httr::status_code(resp) == 200 &&
-    is.list(parsed) &&
-    (is.null(parsed$status) || identical(parsed$status, "success"))
-}
-
-# This function extracts a human-readable error message from a NADA API response
-nada_error_message <- function(resp, parsed) {
-  if (is.list(parsed) && !is.null(parsed$message)) {
-    parsed$message
-  } else {
-    httr::content(resp, as = "text", encoding = "UTF-8")
-  }
-}
-
 # This function POSTs a JSON body to a NADA API endpoint and returns the response alongside its parsed body
 nada_post_json <- function(endpoint, NADA_API_KEY, body, timeout_secs = 60) {
   resp <- with_retry(function() httr::POST(
@@ -258,19 +260,67 @@ nada_post_json <- function(endpoint, NADA_API_KEY, body, timeout_secs = 60) {
     body   = body,
     encode = "json"
   ))
-  list(resp = resp, parsed = parse_nada_response(resp))
+  list(resp = resp, parsed = parse_api_response(resp))
 }
 
-# This function creates a new table in the microdata catalog with title and description
-create_table <- function(db_id, table_id, title, description, NADA_API_KEY) {
+# This function maps a Spark SQL type string (as returned by DESCRIBE TABLE) to the
+# NADA data_dictionary data_type enum (string, integer, float, double, date, boolean,
+# datetime, array, object, null)
+map_spark_type_to_nada <- function(spark_type) {
+  t <- tolower(spark_type)
+
+  if (grepl("^array", t)) return("array")
+  if (grepl("^(struct|map)", t)) return("object")
+  if (grepl("^decimal", t)) return("double")
+
+  switch(t,
+    "int"       = "integer",
+    "integer"   = "integer",
+    "bigint"    = "integer",
+    "smallint"  = "integer",
+    "tinyint"   = "integer",
+    "long"      = "integer",
+    "float"     = "float",
+    "double"    = "double",
+    "boolean"   = "boolean",
+    "date"      = "date",
+    "timestamp" = "datetime",
+    "void"      = "null",
+    "string"
+  )
+}
+
+# This function builds a NADA data_dictionary (name, label, data_type per field) from the
+# schema of a Databricks table, via DESCRIBE TABLE
+get_table_data_dictionary <- function(table_name, sc) {
+  schema <- DBI::dbGetQuery(sc, paste0("DESCRIBE TABLE ", table_name))
+  schema <- schema[!is.na(schema$col_name) & schema$col_name != "" & !grepl("^#", schema$col_name), ]
+
+  lapply(seq_len(nrow(schema)), function(i) {
+    list(
+      name      = schema$col_name[i],
+      label     = schema$col_name[i],
+      data_type = map_spark_type_to_nada(schema$data_type[i])
+    )
+  })
+}
+
+# This function creates a new table in the microdata catalog with title, description, and
+# an optional data_dictionary (array of field definitions)
+create_table <- function(db_id, table_id, title, description, NADA_API_KEY, data_dictionary = NULL) {
+  body <- list(title = title, description = description)
+  if (!is.null(data_dictionary)) {
+    body$data_dictionary <- data_dictionary
+  }
+
   result <- nada_post_json(
     paste0("tables/create_table/", db_id, "/", table_id),
     NADA_API_KEY,
-    list(title = title, description = description)
+    body
   )
 
-  if (!nada_request_ok(result$resp, result$parsed)) {
-    message("Table creation failed [HTTP ", httr::status_code(result$resp), "]: ", nada_error_message(result$resp, result$parsed))
+  if (!api_request_ok(result$resp, result$parsed)) {
+    message("Table creation failed [HTTP ", httr::status_code(result$resp), "]: ", api_error_message(result$resp, result$parsed))
     return(NA)
   }
 
@@ -290,8 +340,8 @@ upload_file_resumable <- function(file_path, NADA_API_KEY, chunk_size = 5 * 1024
     list(filename = filename, total_size = file_size, total_chunks = total_chunks, chunk_size = chunk_size)
   )
 
-  if (!nada_request_ok(init$resp, init$parsed) || is.null(init$parsed$upload_id)) {
-    message("Resumable upload init failed: ", nada_error_message(init$resp, init$parsed))
+  if (!api_request_ok(init$resp, init$parsed) || is.null(init$parsed$upload_id)) {
+    message("Resumable upload init failed: ", api_error_message(init$resp, init$parsed))
     return(NA)
   }
 
@@ -315,10 +365,10 @@ upload_file_resumable <- function(file_path, NADA_API_KEY, chunk_size = 5 * 1024
       httr::timeout(120),
       body = chunk_data
     ))
-    chunk_parsed <- parse_nada_response(chunk_resp)
+    chunk_parsed <- parse_api_response(chunk_resp)
 
-    if (!nada_request_ok(chunk_resp, chunk_parsed)) {
-      message("Upload chunk ", chunk_num, " failed: ", nada_error_message(chunk_resp, chunk_parsed))
+    if (!api_request_ok(chunk_resp, chunk_parsed)) {
+      message("Upload chunk ", chunk_num, " failed: ", api_error_message(chunk_resp, chunk_parsed))
       return(NA)
     }
 
@@ -338,8 +388,8 @@ register_table_upload <- function(db_id, table_id, upload_id, title, description
     list(upload_id = upload_id, title = title, description = description)
   )
 
-  if (!nada_request_ok(register$resp, register$parsed)) {
-    message("Table upload registration failed: ", nada_error_message(register$resp, register$parsed))
+  if (!api_request_ok(register$resp, register$parsed)) {
+    message("Table upload registration failed: ", api_error_message(register$resp, register$parsed))
     return(NA)
   }
 
@@ -365,8 +415,8 @@ run_import_loop <- function(db_id, table_id, NADA_API_KEY, max_rows = NULL, slee
     batch_count <- batch_count + 1
     parsed <- import$parsed
 
-    if (!nada_request_ok(import$resp, parsed) || !is.list(parsed$progress)) {
-      message("Batch import failed on batch ", batch_count, ": ", nada_error_message(import$resp, parsed))
+    if (!api_request_ok(import$resp, parsed) || !is.list(parsed$progress)) {
+      message("Batch import failed on batch ", batch_count, ": ", api_error_message(import$resp, parsed))
       return(NA)
     }
 
@@ -388,13 +438,13 @@ run_import_loop <- function(db_id, table_id, NADA_API_KEY, max_rows = NULL, slee
 # create/upload entirely when that succeeds. This means a retry never re-uploads or re-imports rows that
 # were already safely committed - it only redoes create+upload when there's genuinely nothing to resume.
 publish_table_file <- function(db_id, table_id, file_path, title, description, NADA_API_KEY,
-                                chunk_size = 5 * 1024 * 1024, max_rows = NULL) {
+                                chunk_size = 5 * 1024 * 1024, max_rows = NULL, data_dictionary = NULL) {
   if (isTRUE(run_import_loop(db_id, table_id, NADA_API_KEY, max_rows))) {
     message("Table published, import complete: ", table_id)
     return(TRUE)
   }
 
-  table_created <- create_table(db_id, table_id, title, description, NADA_API_KEY)
+  table_created <- create_table(db_id, table_id, title, description, NADA_API_KEY, data_dictionary)
   if (identical(table_created, NA)) {
     return(NA)
   }
@@ -423,25 +473,18 @@ publish_table_file <- function(db_id, table_id, file_path, title, description, N
 
 # This function attaches a catalog table to a study using the study IDNO
 attach_table_to_study <- function(db_id, table_id, idno, NADA_API_KEY) {
-  url <- paste0(MICRODATA_API_BASE, "tables/attach_to_study")
+  result <- nada_post_json(
+    "tables/attach_to_study",
+    NADA_API_KEY,
+    list(db_id = db_id, table_id = table_id, idno = idno)
+  )
 
-  resp <- with_retry(function() httr::POST(
-    url,
-    httr::add_headers(`X-API-KEY` = NADA_API_KEY),
-    httr::timeout(60),
-    body   = list(db_id = db_id, table_id = table_id, idno = idno),
-    encode = "json"
-  ))
-
-  parsed <- httr::content(resp, as = "parsed", encoding = "UTF-8")
-
-
-  if (httr::status_code(resp) >= 300) {
-    message("Table attach failed: ", parsed$message)
+  if (!api_request_ok(result$resp, result$parsed)) {
+    message("Table attach failed: ", api_error_message(result$resp, result$parsed))
     return(NA)
   }
 
-  isTRUE(parsed$result)
+  isTRUE(result$parsed$result)
 }
 
 # This function records a published harmonized release in the version publication tracker table
@@ -530,16 +573,17 @@ update_metadata <- function(filename) {
 
 get_project_id_by_idno <- function(idno, ME_API_KEY) {
   url <- paste0(METADATA_API_BASE, "editor/", idno)
-  
-  resp <- httr::GET(
+
+  resp <- with_retry(function() httr::GET(
     url,
     httr::add_headers(`X-API-KEY` = ME_API_KEY)
-  )
-  
-  if (httr::status_code(resp) >= 300) {
+  ))
+  parsed <- parse_api_response(resp)
+
+  if (!api_request_ok(resp, parsed)) {
+    message("Lookup failed for idno ", idno, ": ", api_error_message(resp, parsed))
     return(NA)
   }
-  
-  parsed <- httr::content(resp, as = "parsed", encoding = "UTF-8")
+
   as.integer(parsed$project$id)
 }

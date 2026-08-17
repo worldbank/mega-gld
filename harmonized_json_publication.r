@@ -156,13 +156,16 @@ if (is_databricks()) {
     # 2 create catalog table, upload zipped CSV, and import
     message("Publishing catalog table...")
 
+    data_dictionary <- get_table_data_dictionary(table_name, sc)
+
     table_result <- publish_table_file(
       db_id       = "GLD",
       table_id    = idno,
       file_path   = csv_path,
       title       = json_obj$study_desc$title_statement$title,
       description = json_obj$study_desc$title_statement$title,
-      NADA_API_KEY   = NADA_API_KEY
+      NADA_API_KEY   = NADA_API_KEY,
+      data_dictionary = data_dictionary
     )
     if (identical(table_result, NA)) {
       message("ERROR: Table publish failed")
