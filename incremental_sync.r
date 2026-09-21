@@ -95,19 +95,8 @@ message(sprintf(">> Get/create harmonized tables: %.1f sec", difftime(Sys.time()
 
 # Remove records that will be updated using anti-join
 t_step <- Sys.time()
-harmonized_all_cleaned <- harmonized_all %>%
-  anti_join(
-    change_keys %>% select(countrycode, year, survname, quarter),
-    by = c("countrycode", "year", "survname", "quarter")
-  )%>%
-  select(all_of(expected_cols))
-
-harmonized_ouo_cleaned <- harmonized_ouo %>%
-  anti_join(
-    change_keys %>% select(countrycode, year, survname, quarter),
-    by = c("countrycode", "year", "survname", "quarter")
-  )%>%
-  select(all_of(expected_cols))
+harmonized_all_cleaned <- remove_records_to_update(harmonized_all, change_keys, expected_cols)
+harmonized_ouo_cleaned <- remove_records_to_update(harmonized_ouo, change_keys, expected_cols)
 message(sprintf(">> Anti-join cleanup: %.1f sec", difftime(Sys.time(), t_step, units = "secs")))
 
 # COMMAND ----------

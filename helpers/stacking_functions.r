@@ -279,6 +279,31 @@ validate_change_detection <- function(change_keys_df) {
   }
 
 
+#' Remove records that are about to be re-stacked from an existing harmonized table
+#'
+#' Keeps the standard schema columns plus any dynamic columns (subnatid*,
+#' gaul_adm*_code) already present in the table. The production table is fully
+#' overwritten on each run, so dropping dynamic columns here would NULL them out
+#' for every survey that is not re-stacked in the current run.
+#'
+#' @param harmonized_df Existing harmonized DataFrame
+#' @param change_keys_df DataFrame with keys to remove
+#' @param expected_cols Character vector of standard schema column names
+#' @return DataFrame without the records to update
+remove_records_to_update <- function(harmonized_df, change_keys_df, expected_cols) {
+  existing_dynamic <- setdiff(
+    Filter(is_dynamic_column, colnames(harmonized_df)),
+    expected_cols
+  )
+
+  harmonized_df %>%
+    anti_join(
+      change_keys_df %>% select(countrycode, year, survname, quarter),
+      by = c("countrycode", "year", "survname", "quarter")
+    ) %>%
+    select(all_of(c(expected_cols, existing_dynamic)))
+}
+
 
 #' Validate that records were removed correctly via anti-join
 #'

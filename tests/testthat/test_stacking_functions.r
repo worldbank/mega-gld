@@ -394,6 +394,72 @@ test_that("align_dataframe_to_schema preserves dynamic columns", {
 # COMMAND ----------
 
 # =============================================================================
+# Test remove_records_to_update function
+# =============================================================================
+
+test_that("remove_records_to_update preserves dynamic columns of records not being updated", {
+  expected_cols <- c("countrycode", "year", "survname", "quarter", "hhid")
+
+  existing <- data.frame(
+    countrycode = c("AAA", "BBB"), year = c(2020L, 2021L),
+    survname = c("LFS", "LFS"), quarter = c("NA", "NA"), hhid = c("001", "002"),
+    subnatid1 = c("Region1", "Region2"), subnatid1_prev = c("Old1", "Old2"),
+    gaul_adm1_code = c("111", "222"),
+    stringsAsFactors = FALSE
+  )
+  change_keys <- data.frame(
+    countrycode = "BBB", year = 2021L, survname = "LFS", quarter = "NA",
+    stringsAsFactors = FALSE
+  )
+
+  cleaned <- remove_records_to_update(existing, change_keys, expected_cols)
+
+  expect_equal(nrow(cleaned), 1)
+  expect_equal(cleaned$countrycode, "AAA")
+  expect_equal(cleaned$subnatid1, "Region1")
+  expect_equal(cleaned$subnatid1_prev, "Old1")
+  expect_equal(cleaned$gaul_adm1_code, "111")
+})
+
+test_that("remove_records_to_update drops non-schema, non-dynamic columns", {
+  expected_cols <- c("countrycode", "year", "survname", "quarter", "hhid")
+
+  existing <- data.frame(
+    countrycode = "AAA", year = 2020L, survname = "LFS", quarter = "NA", hhid = "001",
+    subnatid1 = "Region1", stray_col = "x",
+    stringsAsFactors = FALSE
+  )
+  change_keys <- data.frame(
+    countrycode = "BBB", year = 2021L, survname = "LFS", quarter = "NA",
+    stringsAsFactors = FALSE
+  )
+
+  cleaned <- remove_records_to_update(existing, change_keys, expected_cols)
+
+  expect_equal(names(cleaned), c(expected_cols, "subnatid1"))
+})
+
+test_that("remove_records_to_update works when the table has no dynamic columns", {
+  expected_cols <- c("countrycode", "year", "survname", "quarter", "hhid")
+
+  existing <- data.frame(
+    countrycode = "AAA", year = 2020L, survname = "LFS", quarter = "NA", hhid = "001",
+    stringsAsFactors = FALSE
+  )
+  change_keys <- data.frame(
+    countrycode = "AAA", year = 2020L, survname = "LFS", quarter = "NA",
+    stringsAsFactors = FALSE
+  )
+
+  cleaned <- remove_records_to_update(existing, change_keys, expected_cols)
+
+  expect_equal(nrow(cleaned), 0)
+  expect_equal(names(cleaned), expected_cols)
+})
+
+# COMMAND ----------
+
+# =============================================================================
 # Test update_metadata_versions function
 # =============================================================================
 
