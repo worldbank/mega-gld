@@ -427,8 +427,10 @@ validate_metadata_sync <- function(metadata_table_name, change_keys_df,
 #' @param target_table Full production table name.
 #' @param sc           Spark connection.
 #' @param batch_size   Number of DataFrames per batch.
+#' @param tmp_prefix   Name prefix of the temp tables (test runs use their own, so
+#'                     they cannot clash with a production run on the same cluster).
 batched_write_table <- function(new_dfs, cleaned_df, target_table, sc,
-                                batch_size = BATCH_SIZE) {
+                                batch_size = BATCH_SIZE, tmp_prefix = "tmp_batch") {
   if (length(new_dfs) == 0) {
     message(sprintf("No new data to write to %s — skipping.", target_table))
     return(invisible(NULL))
@@ -439,7 +441,7 @@ batched_write_table <- function(new_dfs, cleaned_df, target_table, sc,
 
   for (b in seq_along(batches)) {
     idx <- batches[[b]]
-    tmp_name <- sprintf("tmp_batch_%d", b)
+    tmp_name <- sprintf("%s_%d", tmp_prefix, b)
     temp_names <- c(temp_names, tmp_name)
 
     batch_df <- do.call(sdf_bind_rows, new_dfs[idx])

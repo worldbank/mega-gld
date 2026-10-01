@@ -48,6 +48,12 @@ ___
 > Example:
 > THA_2021_LFS-Q2_V01_M_V02_A_GLD is ingested in tha_2021_lfs_q2 table, overwriting its content (i.e.THA_2021_LFS-Q2_V01_M_V01_A_GLD). Subsequently, the rows of the _gld_harmonized_*_ table for Thailand 2021 are dropped, and replaced with the new rows from tha_2021_lfs_q2. After the replacement has occurred, the script retrieves the  _gld_harmonized_*_ latest Delta version (the maximum version number). This version is stored in the __ingestion_metadata_ table in the `stacked_ouo_table_version` column and used to compute the version statement in the **harmonized_json_creation** script.
 
+#### Testing the script on a sample
+
+To try out a change to the stacking logic without touching the production tables, the script can be run in test mode, by setting the `test_mode` parameter to `true`. In test mode the script uses `_ingestion_metadata_test`, `gld_harmonized_all_test` and `gld_harmonized_ouo_test` instead of the __ingestion_metadata_ and _gld_harmonized_*_ tables. The individual survey tables are the production ones, since the script only reads them.
+1. Run `tools/stacking_test_setup` to create `_ingestion_metadata_test` out of a sample of surveys, all flagged as not stacked yet.
+2. Run `tools/stacking_test_run`. It runs **incremental_sync** in test mode, then checks that each stacked survey has the same number of rows, and of non-null values in each dynamic column, as its source table.
+
 #### Updating the stacking schema when the data dictionary changes
 
 When a new column is added to or removed from the GLD data dictionary, the stacking schema must be updated so the harmonized tables reflect the change. The steps depend on whether the column is **static** (fixed name) or **dynamic** (name contains a numeric index).
