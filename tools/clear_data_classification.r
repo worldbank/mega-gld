@@ -34,7 +34,8 @@ sc <- spark_connect(method = "databricks")
 if (length(ids) == 0) stop("No ids provided")
 DBI::dbExecute(sc, paste0("
   UPDATE ", METADATA_TABLE, "
-  SET classification = ''
+  SET classification = '',
+      published = FALSE
   WHERE filename IN (",
   paste(paste0("'", ids, "'"), collapse = ", "),
   ")"
