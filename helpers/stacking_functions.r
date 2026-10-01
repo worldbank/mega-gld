@@ -421,16 +421,16 @@ validate_metadata_sync <- function(metadata_table_name, change_keys_df,
 
 #' Materialize new DataFrames in batches to temp tables, then union with
 #' cleaned existing data for a single atomic overwrite of the production table.
+#' The temp tables are created next to the target table (same schema, named after
+#' it), so that runs against different schemas cannot overwrite each other's.
 #'
 #' @param new_dfs      List of Spark DataFrames to append.
 #' @param cleaned_df   Spark DataFrame of existing records (already anti-joined).
 #' @param target_table Full production table name.
 #' @param sc           Spark connection.
 #' @param batch_size   Number of DataFrames per batch.
-#' @param tmp_prefix   Name prefix of the temp tables (test runs use their own, so
-#'                     they cannot clash with a production run on the same cluster).
 batched_write_table <- function(new_dfs, cleaned_df, target_table, sc,
-                                batch_size = BATCH_SIZE, tmp_prefix = "tmp_batch") {
+                                batch_size = BATCH_SIZE) {
   if (length(new_dfs) == 0) {
     message(sprintf("No new data to write to %s — skipping.", target_table))
     return(invisible(NULL))
@@ -441,7 +441,7 @@ batched_write_table <- function(new_dfs, cleaned_df, target_table, sc,
 
   for (b in seq_along(batches)) {
     idx <- batches[[b]]
-    tmp_name <- sprintf("%s_%d", tmp_prefix, b)
+    tmp_name <- sprintf("%s_tmp_batch_%d", target_table, b)
     temp_names <- c(temp_names, tmp_name)
 
     batch_df <- do.call(sdf_bind_rows, new_dfs[idx])

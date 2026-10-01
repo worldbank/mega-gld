@@ -19,6 +19,11 @@ BATCH_SIZE <- 15
 
 # Database
 TARGET_SCHEMA  <- "prd_csc_mega.sgld48"
+# Set the GLD_TARGET_SCHEMA environment variable to run the pipeline against a
+# copy of the schema (e.g. a sandbox with a few surveys) instead of production
+if (nzchar(Sys.getenv("GLD_TARGET_SCHEMA"))) {
+  TARGET_SCHEMA <- Sys.getenv("GLD_TARGET_SCHEMA")
+}
 OUO_SCHEMA     <- "prd_mega.sgld48"
 METADATA_TABLE <- paste0(TARGET_SCHEMA, "._ingestion_metadata")
 HARMONIZED_ALL <- paste0(TARGET_SCHEMA, ".gld_harmonized_all")

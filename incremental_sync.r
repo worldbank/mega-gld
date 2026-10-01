@@ -36,30 +36,6 @@ sc <- spark_connect(method = "databricks")
 OFFICIAL_CLASS     <- "Official Use"
 CONFIDENTIAL_CLASS <- "Confidential"
 
-# Test mode: run against "_test" copies of the metadata and harmonized tables, to
-# try the script on a small sample without touching production. The survey source
-# tables are still read (never written) from TARGET_SCHEMA.
-# Build the sample with tools/stacking_test_setup, then set the "test_mode"
-# notebook widget / job parameter to "true" (tools/stacking_test_run does it).
-TEST_MODE <- FALSE
-if (exists("IN_DATABRICKS") && IN_DATABRICKS) {
-  dbutils.widgets.text("test_mode", "false")
-  TEST_MODE <- tolower(trimws(dbutils.widgets.get("test_mode"))) == "true"
-}
-TMP_PREFIX <- "tmp_batch"
-if (TEST_MODE) {
-  METADATA_TABLE      <- paste0(METADATA_TABLE, "_test")
-  HARMONIZED_ALL      <- paste0(HARMONIZED_ALL, "_test")
-  HARMONIZED_OFFICIAL <- paste0(HARMONIZED_OFFICIAL, "_test")
-  TMP_PREFIX          <- "tmp_test_batch"
-  if (!SparkR::tableExists(METADATA_TABLE)) {
-    stop(sprintf("TEST MODE: %s does not exist. Create it with tools/stacking_test_setup.",
-                 METADATA_TABLE))
-  }
-  message(sprintf("TEST MODE: using %s, %s and %s",
-                  METADATA_TABLE, HARMONIZED_ALL, HARMONIZED_OFFICIAL))
-}
-
 # Get schema
 schema <- get_gld_schema()
 expected_cols <- names(schema)
@@ -186,16 +162,14 @@ validate_processing_count(length(all_dfs), update_list)
 
 # Batched write HARMONIZED_ALL
 t_step <- Sys.time()
-batched_write_table(all_dfs, harmonized_all_cleaned, HARMONIZED_ALL, sc,
-                    tmp_prefix = TMP_PREFIX)
+batched_write_table(all_dfs, harmonized_all_cleaned, HARMONIZED_ALL, sc)
 message(sprintf(">> Write HARMONIZED_ALL: %.1f sec", difftime(Sys.time(), t_step, units = "secs")))
 
 # COMMAND ----------
 
 # Batched write HARMONIZED_OFFICIAL
 t_step <- Sys.time()
-batched_write_table(ouo_dfs, harmonized_ouo_cleaned, HARMONIZED_OFFICIAL, sc,
-                    tmp_prefix = TMP_PREFIX)
+batched_write_table(ouo_dfs, harmonized_ouo_cleaned, HARMONIZED_OFFICIAL, sc)
 message(sprintf(">> Write HARMONIZED_OFFICIAL: %.1f sec", difftime(Sys.time(), t_step, units = "secs")))
 
 # COMMAND ----------
