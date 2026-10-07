@@ -45,5 +45,16 @@ if (is_databricks()) {
   )
 
   merged_df <- compute_json_inputs(metadata, survey = survey, valid_pairs_df = valid_pairs_df)
+
+  # Hold back files whose country/survey pair is missing in survey-metadata.xlsx (json_publication alerts on them at the end)
+  missing_survey <- find_missing_survey_extended(merged_df)
+  if (nrow(missing_survey) > 0) {
+    message(
+      "Skipping ", nrow(missing_survey), " file(s) not found in survey-metadata.xlsx: ",
+      paste(missing_survey$filename, collapse = ", ")
+    )
+  }
+  merged_df <- merged_df %>% filter(!filename %in% missing_survey$filename)
+
   write_json_files(merged_df, countries_names, JSON_DIR)
 }

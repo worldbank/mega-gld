@@ -234,6 +234,28 @@ test_that("compute_json_inputs works with valid_pairs_df only", {
 })
 
 
+test_that("find_missing_survey_extended returns only pairs missing in the survey sheet", {
+  metadata <- tibble::tibble(
+    filename = c("USA_2020_LFS", "KEN_2019_DHS", "FRA_2021_EU-SILC"),
+    country = c("USA", "KEN", "FRA"),
+    survey  = c("LFS-foo", "DHS-2020", "EU-SILC"),
+    published = c(FALSE, FALSE, FALSE),
+    classification = c("Official Use", "Confidential", "Official Use")
+  )
+
+  survey <- tibble::tibble(
+    country = c("USA", "FRA"),
+    survey  = c("LFS-foo", "EU-SILC"),
+    survey_extended = c("Labor Force Survey", "")
+  )
+
+  out <- find_missing_survey_extended(compute_json_inputs(metadata, survey = survey))
+
+  expect_equal(out$filename, c("FRA_2021_EU-SILC", "KEN_2019_DHS"))
+  expect_equal(names(out), c("country", "survey", "filename"))
+})
+
+
 
 test_that("write_json_files writes one JSON per row with expected filename", {
   df <- tibble::tibble(

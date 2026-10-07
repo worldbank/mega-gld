@@ -46,7 +46,13 @@ if (is_databricks()) {
   countries_names <- countries_names %>% rename(nation_name = name)
 
   merged_df <- left_join(metadata, survey, by = c("survey", "country")) %>%
-    left_join(countries_names, by = c("country" = "code"))
+    left_join(countries_names, by = c("country" = "code")) %>%
+    # Fall back to the survey acronym when the pair is missing in survey-metadata.xlsx
+    mutate(survey_extended = if_else(
+      is.na(survey_extended) | trimws(survey_extended) == "",
+      sub("-.*$", "", survey),
+      survey_extended
+    ))
   
 
   json_files <- list.files(JSON_DIR, pattern="\\.json$", full.names=TRUE)
@@ -218,8 +224,21 @@ if (is_databricks()) {
       message("Skipping metadata update (publish failed) for: ", idno)
     }
     message("Dataset processing complete")
-  
+
   })
+
+  # Alert on files held back by json_creation because their country/survey pair is missing in survey-metadata.xlsx.
+  # Runs after all publications so the failure (and the job's failure email) doesn't block anything.
+  missing_survey <- find_missing_survey_extended(compute_json_inputs(metadata, survey = survey))
+  if (nrow(missing_survey) > 0) {
+    pairs <- missing_survey %>% count(country, survey)
+    stop(
+      "Publication held back: these country/survey pairs are missing in survey-metadata.xlsx. ",
+      "Add them to the Excel file and they will be published on the next run.\n",
+      paste(sprintf("%s / %s (%d file(s))", pairs$country, pairs$survey, pairs$n), collapse = "\n"),
+      call. = FALSE
+    )
+  }
 }
 
 
