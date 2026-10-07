@@ -51,20 +51,14 @@ if (IN_DATABRICKS) {
 
 
 # AI Config
-if (IN_DATABRICKS) {
-  GPT_TENANT_ID       <- dbutils.secrets.get("DAPGPTKEYVAULT", "GPT-APIM-Tenant-ID")
-  GPT_CLIENT_ID       <- dbutils.secrets.get("DAPGPTKEYVAULT", "GPT-APIM-Client-ID")
-  GPT_CLIENT_SECRET   <- dbutils.secrets.get("DAPGPTKEYVAULT", "GPT-APIM-Client-Secret")
-  GPT_TOKEN_SCOPE     <- dbutils.secrets.get("DAPGPTKEYVAULT", "GPT-APIM-Token-Cred")
-} else {
-  if (requireNamespace("dotenv", quietly = TRUE)) {
-    dotenv::load_dot_env()
-  }
-  GPT_TENANT_ID       <- Sys.getenv("GPT_TENANT_ID")
-  GPT_CLIENT_ID       <- Sys.getenv("GPT_CLIENT_ID")
-  GPT_CLIENT_SECRET   <- Sys.getenv("GPT_CLIENT_SECRET")
-  GPT_TOKEN_SCOPE     <- Sys.getenv("GPT_TOKEN_SCOPE")
+# Conversational AI proxy: base URL is provided as an environment variable,
+# the downstream model endpoint is passed as the mai-endpoint query parameter
+if (!IN_DATABRICKS && requireNamespace("dotenv", quietly = TRUE)) {
+  dotenv::load_dot_env()
 }
+CONVERSATIONALAI_BASE_URL <- Sys.getenv("CONVERSATIONALAI_BASE_URL")
+AI_MAI_ENDPOINT           <- "https://azapim.worldbank.org/conversationalai/v2/openai/deployments/gpt-5/chat/completions"
+AI_API_VERSION            <- "2025-04-01-preview"
 
 #API Integration Tests Config
 RUN_API_INTEGRATION <- FALSE

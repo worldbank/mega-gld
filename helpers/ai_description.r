@@ -22,40 +22,19 @@ if (!exists("is_databricks")) {
 
 # COMMAND ----------
 
-get_azure_openai_token <- function() {
-  resp <- httr::POST(
-    paste0("https://login.microsoftonline.com/", GPT_TENANT_ID, "/oauth2/v2.0/token"),
-    httr::timeout(60),
-    body = list(
-      grant_type    = "client_credentials",
-      client_id     = GPT_CLIENT_ID,
-      client_secret = GPT_CLIENT_SECRET,
-      scope         = GPT_TOKEN_SCOPE
-    ),
-    encode = "form"
-  )
-
-  if (httr::status_code(resp) >= 300) {
-    stop("Failed to obtain Azure OpenAI token: ", httr::content(resp, as = "text", encoding = "UTF-8"))
+call_azure_openai <- function(system_msg, user_msg, max_attempts = 5) {
+  if (!nzchar(CONVERSATIONALAI_BASE_URL)) {
+    stop("CONVERSATIONALAI_BASE_URL environment variable is not set")
   }
 
-  httr::content(resp, as = "parsed", encoding = "UTF-8")$access_token
-}
-
-
-
-
-call_azure_openai <- function(system_msg, user_msg, token, max_attempts = 5) {
   for (attempt in seq_len(max_attempts)) {
     resp <- httr::POST(
-      paste0(
-        "https://azapim.worldbank.org/conversationalai/v2/",
-        "openai/deployments/gpt-5/chat/completions?api-version=2025-04-01-preview"
+      CONVERSATIONALAI_BASE_URL,
+      query = list(
+        `mai-endpoint` = AI_MAI_ENDPOINT,
+        `api-version`  = AI_API_VERSION
       ),
-      httr::add_headers(
-        Authorization  = paste("Bearer", token),
-        `Content-Type` = "application/json"
-      ),
+      httr::add_headers(`Content-Type` = "application/json"),
       httr::timeout(60),
       body = jsonlite::toJSON(
         list(
@@ -103,7 +82,7 @@ call_azure_openai <- function(system_msg, user_msg, token, max_attempts = 5) {
 
 
 
-ai_description_from_filename <- function(file_path, resource_type = "technical documentation", token) {
+ai_description_from_filename <- function(file_path, resource_type = "technical documentation") {
   prompt <- paste0(
     "File: ", basename(file_path), "\n\n",
     "This is a ", resource_type, " file for a labor survey dataset. ",
@@ -120,8 +99,7 @@ ai_description_from_filename <- function(file_path, resource_type = "technical d
 
   result <- call_azure_openai(
     system_msg = "You are an AI assistant that writes concise metadata titles and descriptions for documents. Always return exactly two lines: a title, then a description.",
-    user_msg   = prompt,
-    token      = token
+    user_msg   = prompt
   )
 
   if (is.null(result)) {
@@ -134,7 +112,7 @@ ai_description_from_filename <- function(file_path, resource_type = "technical d
 
 
 
-get_ai_description_tech <- function(file_path, token) {
+get_ai_description_tech <- function(file_path) {
   if (grepl("readme", basename(file_path), ignore.case = TRUE)) {
     return(list(
       title       = "README for the Harmonized Dataset",
@@ -146,7 +124,7 @@ get_ai_description_tech <- function(file_path, token) {
 
   if (nchar(trimws(text)) < 50) {
     message("  No text extracted, falling back to filename")
-    return(ai_description_from_filename(file_path, resource_type = "technical documentation", token))
+    return(ai_description_from_filename(file_path, resource_type = "technical documentation"))
   }
 
   prompt <- paste0(
@@ -167,25 +145,24 @@ get_ai_description_tech <- function(file_path, token) {
 
   result <- call_azure_openai(
     system_msg = "You are an AI assistant that writes concise metadata titles and descriptions for documents. Always return exactly two lines: a title, then a description. Describe what is present, never what is missing.",
-    user_msg   = prompt,
-    token      = token
+    user_msg   = prompt
   )
 
   if (is.null(result)) {
     message("  Content filter on text, falling back to filename")
-    return(ai_description_from_filename(file_path, resource_type = "technical documentation", token))
+    return(ai_description_from_filename(file_path, resource_type = "technical documentation"))
   }
 
   result
 }
 
 
-get_ai_description_quest <- function(file_path, token) {
+get_ai_description_quest <- function(file_path) {
   text <- extract_file_text(file_path, max_chars = 800)
 
   if (nchar(trimws(text)) < 50) {
     message("  No text extracted, falling back to filename")
-    return(ai_description_from_filename(file_path, resource_type = "survey questionnaire", token))
+    return(ai_description_from_filename(file_path, resource_type = "survey questionnaire"))
   }
 
   prompt <- paste0(
@@ -207,25 +184,24 @@ get_ai_description_quest <- function(file_path, token) {
 
   result <- call_azure_openai(
     system_msg = "You are an AI assistant that writes concise metadata titles and descriptions for survey questionnaires. Always return exactly two lines: a title, then a description. Describe what is present, never what is missing.",
-    user_msg   = prompt,
-    token      = token
+    user_msg   = prompt
   )
 
   if (is.null(result)) {
     message("  Content filter on text, falling back to filename")
-    return(ai_description_from_filename(file_path, resource_type = "survey questionnaire", token))
+    return(ai_description_from_filename(file_path, resource_type = "survey questionnaire"))
   }
 
   result
 }
 
 
-get_ai_description_data <- function(file_path, token) {
+get_ai_description_data <- function(file_path) {
   text <- extract_file_text(file_path, max_chars = 800)
 
   if (nchar(trimws(text)) < 50) {
     message("  No text extracted, falling back to filename")
-    return(ai_description_from_filename(file_path, resource_type = "additional data", token))
+    return(ai_description_from_filename(file_path, resource_type = "additional data"))
   }
 
   prompt <- paste0(
@@ -244,13 +220,12 @@ get_ai_description_data <- function(file_path, token) {
 
   result <- call_azure_openai(
     system_msg = "You are an AI assistant that writes concise metadata titles and descriptions for data files. Always return exactly two lines: a title, then a description. Describe what is present, never what is missing.",
-    user_msg   = prompt,
-    token      = token
+    user_msg   = prompt
   )
 
   if (is.null(result)) {
     message("  Content filter on text, falling back to filename")
-    return(ai_description_from_filename(file_path, resource_type = "additional data", token))
+    return(ai_description_from_filename(file_path, resource_type = "additional data"))
   }
 
   result
