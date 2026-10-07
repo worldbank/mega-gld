@@ -59,6 +59,21 @@ compute_json_inputs <- function(metadata, survey = NULL, valid_pairs_df = NULL) 
 }
 
 
+is_missing_survey_extended <- function(x) {
+  x <- as.character(x)
+  is.na(x) | trimws(x) == "" | trimws(x) == "NA"
+}
+
+
+# Rows from compute_json_inputs whose country/survey pair has no survey_extended in survey-metadata.xlsx
+find_missing_survey_extended <- function(merged_df) {
+  merged_df %>%
+    filter(is_missing_survey_extended(survey_extended)) %>%
+    distinct(country, survey, filename) %>%
+    arrange(country, survey, filename)
+}
+
+
 write_json_files <- function(df, countries_names, json_dir) {
   walk(seq_len(nrow(df)), function(i) {
     row <- df[i, ]
