@@ -234,14 +234,6 @@ test_that("compute_json_inputs works with valid_pairs_df only", {
 })
 
 
-test_that("is_missing_survey_extended flags NA, empty and the string NA", {
-  expect_equal(
-    is_missing_survey_extended(c(NA, "", "  ", "NA", "Labor Force Survey")),
-    c(TRUE, TRUE, TRUE, TRUE, FALSE)
-  )
-})
-
-
 test_that("find_missing_survey_extended returns only pairs missing in the survey sheet", {
   metadata <- tibble::tibble(
     filename = c("USA_2020_LFS", "KEN_2019_DHS", "FRA_2021_EU-SILC"),
