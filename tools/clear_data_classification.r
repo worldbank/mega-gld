@@ -1,5 +1,7 @@
 # Databricks notebook source
 # This notebook is not part of the main pipeline. It can be used to clear the "classification" flag in _ingestion_metadata if the data classification needs to be recomputed
+# It also resets the stacked table versions so the next incremental sync drops the rows from both harmonized tables and restacks them according to the new classification
+# Run metadata parsing (to recompute the classification) BEFORE the next incremental sync
 
 # COMMAND ----------
 
@@ -34,8 +36,10 @@ sc <- spark_connect(method = "databricks")
 if (length(ids) == 0) stop("No ids provided")
 DBI::dbExecute(sc, paste0("
   UPDATE ", METADATA_TABLE, "
-  SET classification = '',
-      published = FALSE
+  SET classification = NULL,
+      published = FALSE,
+      stacked_all_table_version = NULL,
+      stacked_ouo_table_version = NULL
   WHERE filename IN (",
   paste(paste0("'", ids, "'"), collapse = ", "),
   ")"

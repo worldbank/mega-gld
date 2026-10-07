@@ -146,7 +146,7 @@ for (i in seq_along(update_list)) {
   }
 
   all_dfs[[length(all_dfs) + 1]] <- aligned_df
-  if (!is.na(classification) && classification != CONFIDENTIAL_CLASS) {
+  if (!is.na(classification) && classification == OFFICIAL_CLASS) {
     ouo_dfs[[length(ouo_dfs) + 1]] <- aligned_df
   }
   message(sprintf(">> Processed %s: %.1f sec", tbl_name, difftime(Sys.time(), t_item, units = "secs")))
