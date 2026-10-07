@@ -10,7 +10,7 @@ suppressPackageStartupMessages({
 
 # COMMAND ----------
 
-if (!exists("get_azure_openai_token")) {
+if (!exists("call_azure_openai")) {
   repo_root <- normalizePath(file.path("..", ".."), mustWork = TRUE)
   withr::local_dir(repo_root)
   source(file.path(repo_root, "helpers", "ai_description.r"))
