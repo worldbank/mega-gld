@@ -8,9 +8,30 @@ is_databricks <- function() {
 
 IN_DATABRICKS <- is_databricks()
 
+# Parameters
+# Every setting read through gld_param() can be overridden, in order of precedence, by:
+#   1. a job parameter (or notebook widget) with the same name, e.g. target_schema.
+#      databricks.yml sets these per target, so the staging job runs against the staging
+#      schema and the sample folder without any code change (see README, Staging environment);
+#   2. an environment variable named GLD_<NAME>, e.g. GLD_TARGET_SCHEMA, for interactive
+#      runs and local tests;
+#   3. the production default given here.
+gld_param <- function(name, default) {
+  if (IN_DATABRICKS && exists("dbutils.widgets.get")) {
+    value <- tryCatch(dbutils.widgets.get(name), error = function(e) "")
+    if (nzchar(value)) return(value)
+  }
+  value <- Sys.getenv(paste0("GLD_", toupper(name)))
+  if (nzchar(value)) return(value)
+  default
+}
+
 # Paths
-ROOT_DIR <- "/Volumes/prd_csc_mega/sgld48/vgld48/Documents"
-JSON_DIR <- "/Volumes/prd_csc_mega/sgld48/vgld48/Workspace/json_to_publish"
+# Folder crawled for <country>/<dataset>/<version>/Data/Harmonized/*.dta files;
+# survey-metadata.xlsx must sit at its root
+ROOT_DIR <- gld_param("root_dir", "/Volumes/prd_csc_mega/sgld48/vgld48/Documents")
+# Folder where json files await publication
+JSON_DIR <- gld_param("json_dir", "/Volumes/prd_csc_mega/sgld48/vgld48/Workspace/json_to_publish")
 CSV_HARMONIZED <- "/Volumes/prd_csc_mega/sgld48/vgld48/Workspace/harmonized_csv"
 
 
@@ -18,16 +39,30 @@ CSV_HARMONIZED <- "/Volumes/prd_csc_mega/sgld48/vgld48/Workspace/harmonized_csv"
 BATCH_SIZE <- 15
 
 # Database
-TARGET_SCHEMA  <- "prd_csc_mega.sgld48"
-# Set the GLD_TARGET_SCHEMA environment variable to run the pipeline against a
-# copy of the schema (e.g. a sandbox with a few surveys) instead of production
-if (nzchar(Sys.getenv("GLD_TARGET_SCHEMA"))) {
-  TARGET_SCHEMA <- Sys.getenv("GLD_TARGET_SCHEMA")
+# Schema holding _ingestion_metadata, the survey tables and the gld_harmonized_* tables
+TARGET_SCHEMA  <- gld_param("target_schema", "prd_csc_mega.sgld48")
+# Schema holding gld_availability
+# TODO: Replace prd_mega.gld with prd_mega.sgld48 once the service principal provision is complete
+OUO_SCHEMA     <- gld_param("ouo_schema", "prd_mega.sgld48")
+# Prefix of every table the pipeline writes (empty in production). The staging job sets it to
+# keep its own copies of the tables next to the production ones, e.g. staging__ingestion_metadata
+TABLE_PREFIX   <- gld_param("table_prefix", "")
+
+# Full name of a table written by the pipeline, e.g. gld_table("tha_2021_lfs_q2")
+gld_table <- function(name, schema = TARGET_SCHEMA) {
+  paste0(schema, ".", TABLE_PREFIX, name)
 }
-OUO_SCHEMA     <- "prd_mega.sgld48"
-METADATA_TABLE <- paste0(TARGET_SCHEMA, "._ingestion_metadata")
-HARMONIZED_ALL <- paste0(TARGET_SCHEMA, ".gld_harmonized_all")
-HARMONIZED_OFFICIAL <- paste0(TARGET_SCHEMA, ".gld_harmonized_ouo")
+
+METADATA_TABLE      <- gld_table("_ingestion_metadata")
+HARMONIZED_ALL      <- gld_table("gld_harmonized_all")
+HARMONIZED_OFFICIAL <- gld_table("gld_harmonized_ouo")
+
+if (IN_DATABRICKS) {
+  message(sprintf(
+    "GLD config: target_schema=%s, ouo_schema=%s, table_prefix='%s', root_dir=%s, json_dir=%s",
+    TARGET_SCHEMA, OUO_SCHEMA, TABLE_PREFIX, ROOT_DIR, JSON_DIR
+  ))
+}
 
 # GitHub (for documentation links)
 GH_OWNER  <- "worldbank"

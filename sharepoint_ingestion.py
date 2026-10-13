@@ -15,14 +15,27 @@ from helpers.ingestion_pipeline import *
 def in_databricks() -> bool:
     return ("DATABRICKS_RUNTIME_VERSION" in os.environ)
 
+def gld_param(name: str, default: str) -> str:
+    """Same precedence as gld_param() in helpers/config.r: job parameter (notebook widget),
+    then the GLD_<NAME> environment variable, then the production default."""
+    try:
+        value = dbutils.widgets.get(name)  # noqa: F821 - defined by Databricks in notebooks
+        if value:
+            return value
+    except Exception:
+        pass
+    return os.environ.get(f"GLD_{name.upper()}") or default
+
 if not in_databricks():
     print("Not running in Databricks. Skipping ingestion pipeline.")
 
 else:
     spark = SparkSession.builder.getOrCreate()
 
-    target_schema = "prd_csc_mega.sgld48"
-    metadata_table = f"{target_schema}._ingestion_metadata"
+    target_schema = gld_param("target_schema", "prd_csc_mega.sgld48")
+    table_prefix = gld_param("table_prefix", "")  # see TABLE_PREFIX in helpers/config.r
+    metadata_table = f"{target_schema}.{table_prefix}_ingestion_metadata"
+    print(f"GLD config: target_schema={target_schema}, table_prefix='{table_prefix}'")
 
     CHUNK_THRESHOLD_MB = 900
     CHUNK_SIZE = 5000
@@ -63,7 +76,7 @@ else:
                 print(f"SKIPPING: missing table_name for dta_path={dta_path}")
                 continue
 
-            full_write_table = f"{target_schema}.{tbl_name}"
+            full_write_table = f"{target_schema}.{table_prefix}{tbl_name}"
             print("--- Processing:", dta_path)
 
             try:

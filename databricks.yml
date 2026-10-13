@@ -4,6 +4,28 @@ bundle:
 workspace:
   host: https://adb-1235872843114878.18.azuredatabricks.net/
 
+# Settings that differ between production and staging. They are passed to every task as job
+# parameters, which helpers/config.r and sharepoint_ingestion.py read (see gld_param there).
+variables:
+  target_schema:
+    description: Schema holding _ingestion_metadata, the survey tables and the gld_harmonized_* tables
+    default: prd_csc_mega.sgld48
+  ouo_schema:
+    description: Schema holding gld_availability
+    default: prd_mega.sgld48
+  root_dir:
+    description: Folder crawled for <country>/<dataset>/<version>/Data/Harmonized/*.dta files (survey-metadata.xlsx must sit at its root)
+    default: /Volumes/prd_csc_mega/sgld48/vgld48/Documents
+  json_dir:
+    description: Folder where json files await publication
+    default: /Volumes/prd_csc_mega/sgld48/vgld48/Workspace/json_to_publish
+  table_prefix:
+    description: Prefix of every table the pipeline writes; empty in production, so the job parameter only exists in the staging job
+    default: ""
+  git_branch:
+    description: Branch of the GitHub repository the job runs the notebooks from
+    default: main
+
 resources:
   jobs:
     GLD_pipeline:
@@ -16,6 +38,15 @@ resources:
         periodic:
           interval: 1
           unit: DAYS
+      parameters:
+        - name: target_schema
+          default: ${var.target_schema}
+        - name: ouo_schema
+          default: ${var.ouo_schema}
+        - name: root_dir
+          default: ${var.root_dir}
+        - name: json_dir
+          default: ${var.json_dir}
       tasks:
         - task_key: delta_identification
           notebook_task:
@@ -63,18 +94,62 @@ resources:
             source: GIT
           existing_cluster_id: 0325-175804-46t5j6kj
 
-        - task_key: json_publication
-          depends_on:
-            - task_key: json_creation
-          notebook_task:
-            notebook_path: json_publication
-            source: GIT
-          existing_cluster_id: 0325-175804-46t5j6kj
+        # json_publication is added by the production target below: it is the only task that
+        # writes outside Databricks (Metadata Editor / Microdata Library), so staging never runs it.
 
       git_source:
         git_url: https://github.com/worldbank/mega-gld.git
         git_provider: gitHub
-        git_branch: main
+        git_branch: ${var.git_branch}
 
       queue:
         enabled: true
+
+targets:
+  # Production: the job as deployed today ("databricks bundle deploy" with no target).
+  default:
+    default: true
+    resources:
+      jobs:
+        GLD_pipeline:
+          tasks:
+            - task_key: json_publication
+              depends_on:
+                - task_key: json_creation
+              notebook_task:
+                notebook_path: json_publication
+                source: GIT
+              existing_cluster_id: 0325-175804-46t5j6kj
+
+  # Staging: a second copy of the job, named "[dev <user>] GLD_pipeline" with its trigger paused,
+  # that runs a branch against the sample folder prepared with tools/staging_setup and writes
+  # every table with the staging_ prefix into the production schema (no extra schema needed).
+  # Keep the values in tools/staging_setup in sync with these. Deploy and run with:
+  #   databricks bundle deploy -t staging --var="git_branch=<branch to test>"
+  #   databricks bundle run -t staging GLD_pipeline
+  staging:
+    mode: development
+    variables:
+      table_prefix: staging_
+      # gld_availability lives in the same schema as the other staging tables
+      ouo_schema: prd_csc_mega.sgld48
+      root_dir: /Volumes/prd_csc_mega/sgld48/vgld48/Workspace/staging/Documents
+      json_dir: /Volumes/prd_csc_mega/sgld48/vgld48/Workspace/staging/json_to_publish
+      git_branch: feat/staging-target
+    resources:
+      jobs:
+        GLD_pipeline:
+          # Development mode only pauses a trigger whose pause_status is unset, so pause it
+          # explicitly: the staging job is run on demand.
+          trigger:
+            pause_status: PAUSED
+          parameters:
+            - name: table_prefix
+              default: ${var.table_prefix}
+          tasks:
+            # Run sharepoint_ingestion from the branch too, instead of the production checkout
+            # in /Repos/gld/gld
+            - task_key: sharepoint_ingestion
+              notebook_task:
+                notebook_path: sharepoint_ingestion
+                source: GIT

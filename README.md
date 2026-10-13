@@ -48,7 +48,7 @@ ___
 > Example:
 > THA_2021_LFS-Q2_V01_M_V02_A_GLD is ingested in tha_2021_lfs_q2 table, overwriting its content (i.e.THA_2021_LFS-Q2_V01_M_V01_A_GLD). Subsequently, the rows of the _gld_harmonized_*_ table for Thailand 2021 are dropped, and replaced with the new rows from tha_2021_lfs_q2. After the replacement has occurred, the script retrieves the  _gld_harmonized_*_ latest Delta version (the maximum version number). This version is stored in the __ingestion_metadata_ table in the `stacked_ouo_table_version` column and used to compute the version statement in the **harmonized_json_creation** script.
 
-> To run the script against a copy of the schema instead of production (e.g. a sandbox with a few surveys, to test a change on real data), set the `GLD_TARGET_SCHEMA` environment variable to the name of that schema before running it. The __ingestion_metadata_ table, the survey tables and the _gld_harmonized_*_ tables are then all read from and written to that schema.
+> To run the script against a copy of the schema instead of production (e.g. a sandbox with a few surveys, to test a change on real data), set the `GLD_TARGET_SCHEMA` environment variable, or the `target_schema` job parameter, to the name of that schema before running it (or `GLD_TABLE_PREFIX` / `table_prefix` to use prefixed copies of the tables in the same schema). The __ingestion_metadata_ table, the survey tables and the _gld_harmonized_*_ tables are then all read from and written to that schema. The [Staging environment](#staging-environment) section describes how to run the whole workflow this way on a sample of the data.
 
 #### Updating the stacking schema when the data dictionary changes
 
@@ -67,7 +67,7 @@ When a new column is added to or removed from the GLD data dictionary, the stack
 
 
 ___
-**availability_creation:** creates and keeps up to date the `prd_mega.sgld48.gld_availability` table, which tracks which country/year/survey combinations are available in the catalog along with their data classification. For each combination, it retains only the most recent ingested version (by `table_version`).
+**availability_creation:** creates and keeps up to date the `prd_mega.sgld48.gld_availability` table (`<ouo_schema>.<table_prefix>gld_availability`, see [Staging environment](#staging-environment)), which tracks which country/year/survey combinations are available in the catalog along with their data classification. For each combination, it retains only the most recent ingested version (by `table_version`).
 <br>
 <br>
 
@@ -90,6 +90,33 @@ ___
 > Publication to the Microdata Library requires explicit versioning. The **harmonized_json_publication** script assigns a version identifier (V*) to each _gld_harmonized_* table every time it is published. Each published version must include a version statement describing all changes made since the previous publication. This version statement is constructed in **harmonized_json_creation.** For example, consider publishing version V2 of the __gld_harmonized_all_ table. Suppose the current Databricks table version of __gld_harmonized_all_ is 15. To identify the Databricks table version corresponding to the previously published version (V1), the script queries the __ingestion_metadata_ table and retrieves the value of `stacked_all_published_table_version` for rows where `stacked_all_published_version` = 1. In this example, the returned value is 10, indicating that Databricks table version 10 corresponds to the published V1. The script then scans the __ingestion_metadata_ table for all country–year combinations with `stacked_all_published_table_version` > 10 and compiles the version statement accordingly, for example: “Updated data for [Country] [Year], [Country] [Year], …”.
 ___
 **harmonized_json_publication:** forthcoming
+<br>
+<br>
+## Staging environment
+The `staging` target of `databricks.yml` deploys a second copy of the job, named `[dev <user>] GLD_pipeline` with its daily trigger paused, that runs a branch of this repository against a **sample of the source data** without touching production. It differs from production in a few settings, passed to the tasks as job parameters and read by `helpers/config.r`, `sharepoint_ingestion.py` and, as widgets, `availability_creation.sql`:
+
+| Parameter | Used for | Production | Staging |
+| --- | --- | --- | --- |
+| `table_prefix` | prefix of every table the pipeline writes (__ingestion_metadata_, survey tables, _gld_harmonized_*_, _gld_availability_) | none | `staging_` |
+| `target_schema` | schema of __ingestion_metadata_, the survey tables and _gld_harmonized_*_ | `prd_csc_mega.sgld48` | same |
+| `ouo_schema` | schema of _gld_availability_ | `prd_mega.sgld48` | `prd_csc_mega.sgld48` |
+| `root_dir` | folder crawled for surveys, with `survey-metadata.xlsx` at its root | `.../vgld48/Documents` | `.../vgld48/Workspace/staging/Documents` |
+| `json_dir` | json files awaiting publication | `.../vgld48/Workspace/json_to_publish` | `.../vgld48/Workspace/staging/json_to_publish` |
+
+No extra schema is needed: the staging tables sit next to the production ones, e.g. `prd_csc_mega.sgld48.staging__ingestion_metadata` and `prd_csc_mega.sgld48.staging_tha_2021_lfs_q2`, and `SHOW TABLES IN prd_csc_mega.sgld48 LIKE 'staging_*'` lists them all.
+
+The staging job stops at **json_creation**: the json files can be inspected in the staging `json_dir`, but **json_publication** only exists in the production job, since there is no staging Metadata Editor.
+
+1. Prepare the environment once with `tools/staging_setup`. It copies the dataset folders listed in the notebook, plus `survey-metadata.xlsx`, from the production Documents folder into the staging `root_dir`, keeping the folder structure, and creates the empty `staging__ingestion_metadata` table with the structure of the production one. The staging job then discovers exactly the sample. The prefix and volume paths in the notebook must match the staging target of `databricks.yml`.
+2. Deploy and run the job (run `databricks auth login --host <workspace url>` first if the CLI is not authenticated):
+```bash
+databricks bundle deploy -t staging --var="git_branch=<branch to test>"
+databricks bundle run -t staging GLD_pipeline
+```
+3. Every R and Python notebook prints the settings it resolved (`GLD config: ...`) at the top of its output. Check them on the first run.
+4. To re-test a stage, flip the corresponding flags in the staging __ingestion_metadata_ table (`ingested`, `stacked_*_table_version`, `published`), or run the RESET cell of `tools/staging_setup`, which drops every table with the prefix, to start over from an empty environment.
+
+The same settings can be overridden for interactive runs and local tests with the environment variables `GLD_TABLE_PREFIX`, `GLD_TARGET_SCHEMA`, `GLD_OUO_SCHEMA`, `GLD_ROOT_DIR` and `GLD_JSON_DIR`. Job parameters take precedence over them, and both over the production defaults.
 <br>
 <br>
 ## Tools

@@ -130,7 +130,7 @@ for (i in seq_along(update_list)) {
   t_item <- Sys.time()
   message(sprintf("Processing: %s", tbl_name))
 
-  src_df <- tbl(sc, paste0(TARGET_SCHEMA, ".", tbl_name))
+  src_df <- tbl(sc, gld_table(tbl_name))
 
   result <- align_dataframe_to_schema(src_df, schema, country_val, survey_val, quarter_val)
   aligned_df <- result$aligned_df
