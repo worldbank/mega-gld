@@ -151,6 +151,10 @@ else:
 
     key_match = " AND ".join(f"target.{k} <=> source.{k}" for k in KEY_COLUMNS)
 
+    # Fail loudly rather than clearing the table: an empty selection or a run where
+    # every survey fails points to an upstream problem, not to an empty catalog.
+    if not meta_df:
+        raise RuntimeError("No surveys with stacking = TRUE found in _ingestion_metadata — output table left unchanged.")
     if not rows:
         raise RuntimeError("No surveys were processed successfully — output table left unchanged.")
 

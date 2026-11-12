@@ -236,8 +236,9 @@ def classify_isic(stats):
     if n_section > 0 or n_alphanum > 0:
         result["isic_section_present"] = "X"
 
-    if (100 * n_section / n_total >= THRESHOLD_SECTION
-            or 100 * n_alphanum / n_total >= THRESHOLD_SECTION):
+    # Both pure letters and letter-prefixed codes carry the section, so their
+    # shares are combined
+    if 100 * (n_section + n_alphanum) / n_total >= THRESHOLD_SECTION:
         result["isic_likely_section"] = "Yes"
         result.update(_depth("No", "No", "No"))
     elif n_numeric > 0:
@@ -345,19 +346,42 @@ def get_presence_flags(df, col_names, checkvars):
     }
 
 
+def _normalized_code(colname):
+    """
+    Code as a trimmed, upper-case string. Integral floats lose their decimal
+    suffix ("1100.0" -> "1100") because ingestion infers column types, so codes
+    can arrive as doubles. Leading zeros in string codes are preserved.
+    """
+    as_str = F.upper(F.trim(F.col(colname).cast("string")))
+    return F.regexp_replace(as_str, r"^([0-9]+)\.0+$", "$1")
+
+
+def _padded_code(code):
+    """
+    Short numeric codes right-padded to 4 characters with zeros, following the
+    GLD convention that less detailed codes are padded ("14" -> "1400"), so the
+    trailing-zero heuristic also works for unpadded codes.
+    """
+    return F.when(
+        code.rlike("^[0-9]{1,3}$"), F.rpad(code, 4, "0")
+    ).otherwise(code)
+
+
 def _isco_stats(base, ref_sets):
     """
     Aggregates trailing-zero counts (excluding Armed Forces codes, which start
     with "0") and, when reference sets are given, reference-match counts.
-    Reference matching uses native isin() expressions instead of a Python UDF.
+    Reference matching uses the unpadded code and native isin() expressions
+    instead of a Python UDF; trailing zeros use the padded code.
     """
     code = F.col("code_str")
+    padded = _padded_code(code)
     non_af = ~code.startswith("0")
     aggs = [
         F.count("*").alias("n_total"),
         F.sum(non_af.cast("int")).alias("n_non_af"),
-        F.sum((non_af & (F.expr("right(code_str, 1)") == "0")).cast("int")).alias("n_last0"),
-        F.sum((non_af & (F.expr("right(code_str, 2)") == "00")).cast("int")).alias("n_last00"),
+        F.sum((non_af & padded.endswith("0")).cast("int")).alias("n_last0"),
+        F.sum((non_af & padded.endswith("00")).cast("int")).alias("n_last00"),
     ]
     if ref_sets is not None:
         ref_4d, ref_3d, ref_2d = (sorted(s) for s in ref_sets)
@@ -390,9 +414,7 @@ def compute_isco_depth(df, col_names, isco_ver, isco_refs):
         if colname not in col_names:
             return result
 
-        base = _non_empty_codes(df, colname).select(
-            F.trim(F.col(colname).cast("string")).alias("code_str")
-        )
+        base = _non_empty_codes(df, colname).select(_normalized_code(colname).alias("code_str"))
         stats = _isco_stats(base, ref_sets)
         if not stats["n_total"]:
             return result
@@ -430,17 +452,18 @@ def compute_isic_depth(df, col_names):
         main = classify_isic({"n_total": 0})
     else:
         code = F.col("code_trim")
+        padded = _padded_code(code)
         is_numeric = code.rlike("^[0-9]+$")
         stats = (
             _non_empty_codes(df, colname)
-              .select(F.trim(F.upper(F.col(colname).cast("string"))).alias("code_trim"))
+              .select(_normalized_code(colname).alias("code_trim"))
               .agg(
                   F.count("*").alias("n_total"),
                   F.sum(code.rlike("^[A-U]$").cast("int")).alias("n_section"),
                   F.sum(code.rlike("^[A-U][0-9]+$").cast("int")).alias("n_alphanum"),
                   F.sum(is_numeric.cast("int")).alias("n_numeric"),
-                  F.sum((is_numeric & (F.expr("right(code_trim, 1)") == "0")).cast("int")).alias("n_last0"),
-                  F.sum((is_numeric & (F.expr("right(code_trim, 2)") == "00")).cast("int")).alias("n_last00"),
+                  F.sum((is_numeric & padded.endswith("0")).cast("int")).alias("n_last0"),
+                  F.sum((is_numeric & padded.endswith("00")).cast("int")).alias("n_last00"),
               )
               .collect()[0]
               .asDict()
