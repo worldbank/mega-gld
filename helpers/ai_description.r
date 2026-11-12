@@ -1,0 +1,236 @@
+# Databricks notebook source
+library(httr)
+library(jsonlite)
+library(readxl)
+
+
+# COMMAND ----------
+
+# MAGIC %run "./config"
+
+# COMMAND ----------
+
+# MAGIC %run "./extract_text"
+
+# COMMAND ----------
+
+if (!exists("is_databricks")) {
+  source("helpers/config.r")
+  source("helpers/extract_text.r")
+}
+
+
+# COMMAND ----------
+
+call_azure_openai <- function(system_msg, user_msg, max_attempts = 5) {
+  if (!nzchar(CONVERSATIONALAI_BASE_URL)) {
+    stop("CONVERSATIONALAI_BASE_URL environment variable is not set")
+  }
+
+  for (attempt in seq_len(max_attempts)) {
+    resp <- httr::POST(
+      CONVERSATIONALAI_BASE_URL,
+      query = list(
+        `mai-endpoint` = AI_MAI_ENDPOINT,
+        `api-version`  = AI_API_VERSION
+      ),
+      httr::add_headers(`Content-Type` = "application/json"),
+      httr::timeout(60),
+      body = jsonlite::toJSON(
+        list(
+          messages = list(
+            list(role = "system", content = system_msg),
+            list(role = "user",   content = user_msg)
+          )
+        ),
+        auto_unbox = TRUE
+      )
+    )
+
+    status <- httr::status_code(resp)
+
+    if (status == 429) {
+      retry_after <- as.numeric(httr::headers(resp)[["retry-after"]])
+      wait        <- if (!is.na(retry_after) && retry_after > 0) retry_after else 60
+      message(sprintf("Rate limited (attempt %d/%d), waiting %ds...", attempt, max_attempts, wait))
+      Sys.sleep(wait)
+      next
+    }
+
+    if (status >= 300) {
+      body <- httr::content(resp, as = "text", encoding = "UTF-8")
+      if (grepl("content_filter", body, fixed = TRUE)) {
+        message("Content filter triggered, falling back to filename")
+        return(NULL)
+      }
+      stop("Azure OpenAI call failed: ", body)
+    }
+
+    parsed <- httr::content(resp, as = "parsed", encoding = "UTF-8")
+    raw    <- parsed$choices[[1]]$message$content
+    lines  <- strsplit(trimws(raw), "\n")[[1]]
+    lines  <- lines[nzchar(trimws(lines))]
+
+    return(list(
+      title       = if (length(lines) >= 1) trimws(lines[[1]]) else NA_character_,
+      description = if (length(lines) >= 2) trimws(lines[[2]]) else NA_character_
+    ))
+  }
+
+  stop(sprintf("Azure OpenAI call failed after %d attempts", max_attempts))
+}
+
+
+
+ai_description_from_filename <- function(file_path, resource_type = "technical documentation") {
+  prompt <- paste0(
+    "File: ", basename(file_path), "\n\n",
+    "This is a ", resource_type, " file for a labor survey dataset. ",
+    "No text could be extracted from the file. ",
+    "Based only on the filename, return exactly two lines:\n",
+    "Line 1: A title of at most 8 words in title case summarising what this file covers. ",
+    "Do not include the country name or the year. ",
+    "The title should be in English. ",
+    "If the filename suggests a non-English language, append it in brackets, e.g. 'Enumerators Manual [French]'.\n",
+    "Line 2: A description of at most 20 words expanding on the title. ",
+    "The description should be in English.\n",
+    "Return nothing else."
+  )
+
+  result <- call_azure_openai(
+    system_msg = "You are an AI assistant that writes concise metadata titles and descriptions for documents. Always return exactly two lines: a title, then a description.",
+    user_msg   = prompt
+  )
+
+  if (is.null(result)) {
+    message("  Content filter triggered on filename fallback, returning NA")
+    return(list(title = NA_character_, description = NA_character_))
+  }
+
+  result
+}
+
+
+
+get_ai_description_tech <- function(file_path) {
+  if (grepl("readme", basename(file_path), ignore.case = TRUE)) {
+    return(list(
+      title       = "README for the Harmonized Dataset",
+      description = "Overview of dataset origin and access scope"
+    ))
+  }
+
+  text <- extract_file_text(file_path, max_chars = 800)
+
+  if (nchar(trimws(text)) < 50) {
+    message("  No text extracted, falling back to filename")
+    return(ai_description_from_filename(file_path, resource_type = "technical documentation"))
+  }
+
+  prompt <- paste0(
+    "File: ", basename(file_path), "\n\n",
+    "A technical documentation file for a labor survey dataset contains the following text:\n\n",
+    "---\n", text, "\n---\n\n",
+    "Return exactly two lines:\n",
+    "Line 1: A title of at most 8 words in title case summarising what this document covers. ",
+    "Use both the filename and the text content as context. ",
+    "Do not include the country name or the year.\n",
+    "The title should be in English.\n",
+    "If the file is not in English, append the language in brackets, e.g. 'Household Survey Module A [French]'.\n",
+    "Line 2: A description of at most 20 words expanding on the title. ",
+    "Focus on what the document contains, not on what is absent or incomplete.\n",
+    "The description should be in English.\n",
+    "Return nothing else."
+  )
+
+  result <- call_azure_openai(
+    system_msg = "You are an AI assistant that writes concise metadata titles and descriptions for documents. Always return exactly two lines: a title, then a description. Describe what is present, never what is missing.",
+    user_msg   = prompt
+  )
+
+  if (is.null(result)) {
+    message("  Content filter on text, falling back to filename")
+    return(ai_description_from_filename(file_path, resource_type = "technical documentation"))
+  }
+
+  result
+}
+
+
+get_ai_description_quest <- function(file_path) {
+  text <- extract_file_text(file_path, max_chars = 800)
+
+  if (nchar(trimws(text)) < 50) {
+    message("  No text extracted, falling back to filename")
+    return(ai_description_from_filename(file_path, resource_type = "survey questionnaire"))
+  }
+
+  prompt <- paste0(
+    "File: ", basename(file_path), "\n\n",
+    "A survey questionnaire file contains the following extracted text:\n\n",
+    "---\n", text, "\n---\n\n",
+    "Return exactly two lines:\n",
+    "Line 1: A title of at most 8 words in title case. ",
+    "Do not include the country name or the year. ",
+    "The title should be in English",
+    "If the filename suggests a time period (e.g. quarter, semester, wave), include it. ",
+    "If the questionnaire is not in English, append the language in brackets, e.g. 'Household Survey Module A [French]'.\n",
+    "Line 2: A description of at most 20 words. ",
+    "If the questionnaire is not in English, mention the language. ",
+    "The description should be in English",
+    "Focus on what the questionnaire covers, not on what is absent or incomplete.\n",
+    "Return nothing else."
+  )
+
+  result <- call_azure_openai(
+    system_msg = "You are an AI assistant that writes concise metadata titles and descriptions for survey questionnaires. Always return exactly two lines: a title, then a description. Describe what is present, never what is missing.",
+    user_msg   = prompt
+  )
+
+  if (is.null(result)) {
+    message("  Content filter on text, falling back to filename")
+    return(ai_description_from_filename(file_path, resource_type = "survey questionnaire"))
+  }
+
+  result
+}
+
+
+get_ai_description_data <- function(file_path) {
+  text <- extract_file_text(file_path, max_chars = 800)
+
+  if (nchar(trimws(text)) < 50) {
+    message("  No text extracted, falling back to filename")
+    return(ai_description_from_filename(file_path, resource_type = "additional data"))
+  }
+
+  prompt <- paste0(
+    "File: ", basename(file_path), "\n\n",
+    "An additional data file for a labor survey dataset contains the following extracted text:\n\n",
+    "---\n", text, "\n---\n\n",
+    "Return exactly two lines:\n",
+    "Line 1: A title of at most 8 words in title case summarising what this file contains. ",
+    "Do not include the country name or the year.\n",
+    "The title should be in English",
+    "Line 2: A description of at most 20 words expanding on the title. ",
+    "Focus on what the file contains, not on what is absent or incomplete.\n",
+    "The description should be in English",
+    "Return nothing else."
+  )
+
+  result <- call_azure_openai(
+    system_msg = "You are an AI assistant that writes concise metadata titles and descriptions for data files. Always return exactly two lines: a title, then a description. Describe what is present, never what is missing.",
+    user_msg   = prompt
+  )
+
+  if (is.null(result)) {
+    message("  Content filter on text, falling back to filename")
+    return(ai_description_from_filename(file_path, resource_type = "additional data"))
+  }
+
+  result
+}
+
+# COMMAND ----------
+
+

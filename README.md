@@ -5,13 +5,13 @@
 #### Automation pipeline to onboard the Global Labor Database to the Corporate Data Lake and publish its datasets to the Microdata Library
 #### 
 The pipeline is organized in three different jobs:
-1. Ingestion and Stacking (daily) [ADD LINK]
-2. Publication of individual tables to Microdata Library (monthly) [ADD LINK]
-3. Publication of stacked tables to Microdata Library (monthly) [ADD LINK]
+1. Ingestion and Stacking (daily)
+2. Publication of individual tables to Microdata Library (monthly) 
+3. Publication of stacked tables to Microdata Library (monthly) 
 
 This is a list of all support folders/files/tables:
 * The **`_ingestion_metadata table`** is a table that keeps track of which tables have been ingested and published in the Microdata Library, as well as of some dataset-specific metadata. It also stores the path to the dta files and do files that have been associated with that specific ingestion
-* [This Sharepoint file](https://worldbankgroup.sharepoint.com/:x:/r/sites/dap/gld/_layouts/15/Doc.aspx?sourcedoc=%7B3F8DB34F-8359-4BFC-86A0-5D14776E59E7%7D&file=survey-metadata.xlsx&action=default&mobileredirect=true) keeps track of all country survey specific metadata. 
+* All country survey specific metadata is stored in am Excel file on the GLD Sharepoint.
 > When a new survey is onboarded to the GLD catalog, the survey should be added in this csv file. 
 * Country codes and names are matched using the MEGA table at prd_mega.indicator.country. 
 * The folder /Volumes/prd_csc_mega/sgld48/vgld48/Workspace/**json_to_publish**/ contains all json files awaiting publications. 
@@ -39,20 +39,42 @@ ___
 It also computes the `stacking` flag (1 if the table is supposed to be stacked in the _gld_harmonized_*_ tables, 0 otherwise).
 > The stacking flag identifies which dataset versions should be included for each country–year combination. Only datasets for which the data classification was successfully parsed are eligible to be stacked. For both annual data (by country–year) and quarterly data (by country–year–quarter), the most recent eligible version is stacked; if the latest version does not have a data classification in the __ingestion_metadata_ table, the logic falls back to the next most recent classified version. Panel datasets are always excluded from stacking, all other rows default to stacking = 0, and when multiple harmonization types exist for the same country–year, GLD datasets are preferred over GLD-Light.
 ___
-**table_stacking:** forthcoming.
-Every time a specific version of a data table is added to a stacked table (either as a new country/year addition or replacing an older version of a country/year dataset), the databricks table version of the stacked table is recorded in the __ingestion_metadata_ table.
+**incremental_sync:** stacks individual country–year survey tables into the consolidated _gld_harmonized_*_ tables. The script:
+1. Identifies which tables need to be added or updated by comparing `stacking` flags and existing `stacked_*_table_version` values in the __ingestion_metadata_ table.
+2. For each table to be stacked, aligns its columns to the standard schema defined in `helpers/stacking_schema.r` — casting types, filling missing columns with NULL, and carrying over dynamic columns (subnational IDs, GAUL codes).
+3. Removes existing rows for the affected country–year–survey–quarter combinations from the harmonized tables (anti-join), then writes the new data in batches and overwrites the production table atomically.
+4. Records the new Databricks Delta table version in the __ingestion_metadata_ table (`stacked_all_table_version`, `stacked_ouo_table_version`), which is later used to construct version statements for publication.
+
 > Example:
 > THA_2021_LFS-Q2_V01_M_V02_A_GLD is ingested in tha_2021_lfs_q2 table, overwriting its content (i.e.THA_2021_LFS-Q2_V01_M_V01_A_GLD). Subsequently, the rows of the _gld_harmonized_*_ table for Thailand 2021 are dropped, and replaced with the new rows from tha_2021_lfs_q2. After the replacement has occurred, the script retrieves the  _gld_harmonized_*_ latest Delta version (the maximum version number). This version is stored in the __ingestion_metadata_ table in the `stacked_ouo_table_version` column and used to compute the version statement in the **harmonized_json_creation** script.
+
+#### Updating the stacking schema when the data dictionary changes
+
+When a new column is added to or removed from the GLD data dictionary, the stacking schema must be updated so the harmonized tables reflect the change. The steps depend on whether the column is **static** (fixed name) or **dynamic** (name contains a numeric index).
+
+**Static columns** — edit `helpers/stacking_schema.r`, `get_gld_schema()`:
+- To **add** a column: insert a new entry in the list with the column name and its Spark SQL type (e.g., `new_column = "integer"`).
+- To **remove** a column: delete its entry from the list.
+
+**Dynamic columns** (columns whose names follow a pattern with a numeric index, e.g., `subnatid1`, `gaul_adm2_code`) — edit `helpers/stacking_schema.r`:
+1. Create a new `is_<name>_column()` helper that uses a regex to match the column name pattern (see `is_subnational_column` and `is_gaul_column` for examples).
+2. Update `is_dynamic_column()` to include the new helper with an `||` clause.
 <br>
 <br>
 
+
+
+___
+**availability_creation:** creates and keeps up to date the `prd_mega.sgld48.gld_availability` table, which tracks which country/year/survey combinations are available in the catalog along with their data classification. For each combination, it retains only the most recent ingested version (by `table_version`).
+<br>
+<br>
 
 
 ### Publication of individual tables to Microdata Library Job Scripts
 ___
-**json_creation:** creates all the .json files from metadata in the __ingestion_metadata_ table, using the supporting files _countries.csv_, and _survey_metadata.csv_, and saves them in the json_temp folder. It also computes and verifies github links for those surveys that have documentation published in github.
+**json_creation:** creates all the .json files from metadata in the __ingestion_metadata_ table, using country names from the `prd_mega.indicator.country` table and survey metadata from the `survey-metadata.xlsx` file, and saves them in the `json_to_publish` folder. It also computes and verifies github links for those surveys that have documentation published in github.
 ___
-**json_publication:** publishes all the json files in json_temp, alongside the corresponding datasets (using the file in the `dta_path` column of the __ingestion_metadata_ table), .do files (using the file in the `do_path` column of the __ingestion_metadata_ table) and technical documentation/questionnaires (found in the corresponding Docs folder). 
+**json_publication:** publishes all the json files in the `json_to_publish` folder, alongside the corresponding datasets (using the file in the `dta_path` column of the __ingestion_metadata_ table), .do files (using the file in the `do_path` column of the __ingestion_metadata_ table), technical documentation/questionnaires (found in the corresponding Docs folder), and any additional data files found in an `Additional Data/` folder alongside the .dta file. AI-generated titles and descriptions are produced for each uploaded resource. 
 > Please note that the environment variable "NADA_API_KEY" is used to publish. if the API key needs to be updated, follow [these instructions](https://docs.databricks.com/aws/en/security/secrets/). The scope is GLDKEYVAULT, and it can be managed by anyone in the ITSDA-LKHS-DAP-PROD-gld team.
 > Please note that the structure of the Docs folders varies. Some Docs folders contain files, some contain subfolders called Technical and Questionnaires - however these can be empty. For convenience, if documents are correctly organized, they will be published as two separate resources (Questionnaires and Technical Documentation). If they are not, all documents get uploaded as Technical Documentation. 
 <br>
@@ -68,7 +90,10 @@ ___
 **harmonized_json_publication:** forthcoming
 <br>
 <br>
-
+## Tools
+> The `tools` folder contains specific scripts that can aid in the management of the pipeline, but are not part of it. 
+<br>
+<br>
 ## Tests
 > To run API Integration tests, please set the RUN_API_INTEGRATION flag in the API Integration Tests Config section of the `helpers/config` file to TRUE. 
 
@@ -102,4 +127,8 @@ Import the repository into a Databricks workspace, then run `tests/testthat_run`
 #### Python tests
 Import the repository into a Databricks workspace, then run `tests/pytest_run` as a notebook. Please note that this will work only if the repository is added in a `/Workspace/Repos` folder. If the repository is uploaded in a `/Workspace/Users/` folder, the subprocess won't be able to identify pytest scripts. 
 
+## License
+This project is licensed under the [MIT License](https://github.com/dime-worldbank/mega-gld/blob/main/LICENSE.txt) together with the [World Bank IGO Rider](https://github.com/dime-worldbank/mega-gld/blob/main/WB-IGO-RIDER.md). The Rider is purely procedural: it reserves all privileges and immunities enjoyed by the World Bank, without adding restrictions to the MIT permissions. Please review both files before using, distributing or contributing.
 
+## Contacts
+Should you have any questions or suggestions, please reach out to gld@worldbank.org

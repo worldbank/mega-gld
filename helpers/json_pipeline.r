@@ -36,7 +36,8 @@ compute_json_inputs <- function(metadata, survey = NULL, valid_pairs_df = NULL) 
   out <- metadata %>%
     filter(
       published == FALSE,
-      !is.na(classification), 
+      !is.na(classification),
+      trimws(classification) != "NA",
       trimws(classification) != ""
     )
 
@@ -58,13 +59,22 @@ compute_json_inputs <- function(metadata, survey = NULL, valid_pairs_df = NULL) 
 }
 
 
+# Rows from compute_json_inputs whose country/survey pair has no survey_extended in survey-metadata.xlsx
+find_missing_survey_extended <- function(merged_df) {
+  merged_df %>%
+    filter(is.na(survey_extended) | trimws(survey_extended) %in% c("", "NA")) %>%
+    distinct(country, survey, filename) %>%
+    arrange(country, survey, filename)
+}
+
+
 write_json_files <- function(df, countries_names, json_dir) {
   walk(seq_len(nrow(df)), function(i) {
     row <- df[i, ]
 
     tryCatch({
       json_obj <- make_mdl_json(row, countries_names)
-      out_path <- file.path(json_dir, paste0("DDI_", row$filename, "_WB.json"))
+      out_path <- file.path(json_dir, paste0(row$filename, ".json"))
       write_json(json_obj, out_path, pretty = TRUE, auto_unbox = TRUE)
       message("JSON created for ", row$filename)
     }, error = function(e) {

@@ -2,9 +2,12 @@
 library(purrr)
 library(dplyr)
 library(stringr)
+library(tidyr)
 
 list_dta_files <- function(paths) {
   files <- unlist(map(paths, ~ list.files(.x, pattern = "\\.dta$", full.names = TRUE)))
+
+  if (length(files) == 0) return(character(0))
   
   tibble(path = files) %>%
     mutate(

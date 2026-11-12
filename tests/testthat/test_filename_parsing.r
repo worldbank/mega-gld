@@ -23,28 +23,30 @@ if (!exists("list_dta_files")) {
 
 test_that("list_dta_files finds .dta files across multiple paths and ignores other files", {
   tmp <- tempdir()
-  dir1 <- file.path(tmp, "test_dir1")
-  dir2 <- file.path(tmp, "test_dir2")
-  dir3 <- file.path(tmp, "test_empty")
-  dir.create(dir1, showWarnings = FALSE)
-  dir.create(dir2, showWarnings = FALSE)
-  dir.create(dir3, showWarnings = FALSE)
+  
+  dir1 <- file.path(tmp, "COL/COL_2022_GEIH/COL_2022_GEIH_V01_M_V01_A_GLD/Data/Harmonized")
+  dir2 <- file.path(tmp, "BRA/BRA_2019_PNAD/BRA_2019_PNAD_V01_M_V01_A_GLD/Data/Harmonized")
+  dir3 <- file.path(tmp, "USA/USA_2020_LFS/USA_2020_LFS_V01_M_V01_A_GLD/Data/Harmonized")
+  
+  dir.create(dir1, recursive = TRUE, showWarnings = FALSE)
+  dir.create(dir2, recursive = TRUE, showWarnings = FALSE)
+  dir.create(dir3, recursive = TRUE, showWarnings = FALSE)
 
-  file.create(file.path(dir1, "survey1.dta"))
-  file.create(file.path(dir1, "survey2.dta"))
+  file.create(file.path(dir1, "COL_2022_GEIH_V01_M_V01_A_GLD_ALL.dta"))
   file.create(file.path(dir1, "readme.txt"))
-  file.create(file.path(dir2, "survey3.dta"))
+  file.create(file.path(dir2, "BRA_2019_PNAD_V01_M_V01_A_GLD_ALL.dta"))
   file.create(file.path(dir2, "data.csv"))
+  file.create(file.path(dir3, "USA_2020_LFS_V01_M_V01_A_GLD_ALL.dta"))
 
   result <- list_dta_files(c(dir1, dir2, dir3))
 
   expect_equal(length(result), 3)
   expect_true(all(grepl("\\.dta$", result)))
-  expect_true(any(grepl("survey1\\.dta$", result)))
-  expect_true(any(grepl("survey2\\.dta$", result)))
-  expect_true(any(grepl("survey3\\.dta$", result)))
+  expect_true(any(grepl("COL_2022_GEIH", result)))
+  expect_true(any(grepl("BRA_2019_PNAD", result)))
+  expect_true(any(grepl("USA_2020_LFS", result)))
 
-  unlink(c(dir1, dir2, dir3), recursive = TRUE)
+  unlink(file.path(tmp, c("COL", "BRA", "USA")), recursive = TRUE)
 })
 
 # --- Tests for parse_metadata_from_filename ---
