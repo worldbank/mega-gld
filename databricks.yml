@@ -39,11 +39,11 @@ resources:
             source: GIT
           existing_cluster_id: 0325-175804-46t5j6kj
 
-        - task_key: availability_creation
+        - task_key: platform_creation
           depends_on:
             - task_key: metadata_parsing
           notebook_task:
-            notebook_path: availability_creation
+            notebook_path: platform_creation
             source: GIT
           existing_cluster_id: 0325-175804-46t5j6kj
 
