@@ -25,9 +25,7 @@ from datetime import datetime, timezone
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 
-# COMMAND ----------
-
-# MAGIC %run "./helpers/platform_pipeline"
+from helpers.platform_pipeline import *
 
 # COMMAND ----------
 
