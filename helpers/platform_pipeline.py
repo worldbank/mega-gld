@@ -2,8 +2,10 @@ import pandas as pd
 
 try:
     from pyspark.sql import functions as F
+    from pyspark.sql.functions import udf
+    from pyspark.sql.types import StringType
 except ImportError:  # allows the pure-Python helpers to be tested without Spark
-    F = None
+    F = udf = StringType = None
 
 # ==============================================================================
 # THRESHOLDS
@@ -11,19 +13,12 @@ except ImportError:  # allows the pure-Python helpers to be tested without Spark
 
 # ISCO/ISIC depth — reference-based matching against official code lists
 # A depth level is assigned when the share of matching codes meets the threshold
-THRESHOLD_4DIGIT = 75
-THRESHOLD_3DIGIT = 75
-THRESHOLD_2DIGIT = 80
+THRESHOLD_4DIGIT  = 75
+THRESHOLD_3DIGIT  = 75
+THRESHOLD_2DIGIT  = 80
 
 # ISIC section threshold (special case) - >= 50% of codes are single letters (A-U)
 THRESHOLD_SECTION = 50
-
-# Share of non-Armed-Forces codes ending in "0" above which a 4-digit reference
-# match is treated as spurious padding of shorter codes
-THRESHOLD_SPURIOUS_PADDING = 95
-
-# Share of codes not found in the reference above which a warning is printed
-THRESHOLD_UNKNOWN_WARNING = 30
 
 # ==============================================================================
 # VARIABLE GROUPS
@@ -66,7 +61,7 @@ VARIABLE_GROUPS = {
     ],
     "second_job_12m": [
         "empstat_2_year", "industrycat10_2_year", "occup_2_year",
-        "wage_total_2_year", "whours_2_year", "unitwage_2_year",
+        "wage_total_2_year", "whours_2_year", "unitwage_total_2_year",
         "t_wage_total_year"
     ],
     "migration": [
@@ -80,227 +75,288 @@ VARIABLE_GROUPS = {
     ]
 }
 
-ALL_CHECKVARS = [v for group in VARIABLE_GROUPS.values() for v in group]
+ALL_CHECKVARS       = [v for group in VARIABLE_GROUPS.values() for v in group]
 INFORMALITY_PROXIES = ["contract", "healthins", "socialsec", "whours", "unitwage"]
-WAGE_VARIABLE = "wage_no_compen"
 
-# Every variable whose presence is checked, deduplicated and in a stable order.
-# Computed once here instead of on every survey iteration.
-VARS_TO_CHECK = list(dict.fromkeys(ALL_CHECKVARS + INFORMALITY_PROXIES + [WAGE_VARIABLE]))
+# All variables checked for presence — computed once instead of on every survey.
+# (wage_no_compen is already part of ALL_CHECKVARS)
+ALL_VARS_TO_CHECK = ALL_CHECKVARS + [
+    v for v in INFORMALITY_PROXIES if v not in ALL_CHECKVARS
+]
 
 
 # ==============================================================================
-# PURE HELPERS (no Spark)
+# ISCO REFERENCE
 # ==============================================================================
 
-def build_isco_reference_sets(codes):
+def load_isco_reference(excel_path, sheet_name):
     """
-    Builds the three reference sets for one ISCO version from its unit group codes.
-    Returns (valid_4digit, valid_3digit, valid_2digit).
+    Loads unit group codes from a sheet in the ILO ISCO Excel file.
+    Returns three sets: valid_4digit, valid_3digit, valid_2digit.
     """
-    cleaned = (str(c).strip() for c in codes if c is not None and not pd.isna(c))
-    valid_4digit = {c for c in cleaned if len(c) == 4}
+    df = pd.read_excel(excel_path, sheet_name=sheet_name, dtype=str)
+    df.columns = df.columns.str.strip().str.lower()
+    codes = df["unit"].dropna().str.strip()
+    valid_4digit = {c for c in codes if len(c) == 4}
     valid_3digit = {c[:3] for c in valid_4digit}
     valid_2digit = {c[:2] for c in valid_4digit}
     return valid_4digit, valid_3digit, valid_2digit
 
 
-def load_isco_reference(excel_path, sheet_name):
-    """
-    Loads unit group codes from a sheet in the ILO ISCO Excel file
-    (the "unit" column) and returns the three reference sets.
-    """
-    df = pd.read_excel(excel_path, sheet_name=sheet_name, dtype=str)
-    df.columns = df.columns.str.strip().str.lower()
-    return build_isco_reference_sets(df["unit"].dropna())
-
-
 def normalize_isco_version(isco_ver):
     """
-    Maps the free-text isco_version value to "ISCO-08", "ISCO-88" or None
-    (None means no 4-digit reference is available for that version).
+    Maps isco_version to "ISCO-08" or "ISCO-88" (versions with a 4-digit
+    reference), or None for all other versions.
     """
-    norm = str(isco_ver).strip().lower().replace("-", "").replace("_", "").replace(" ", "")
-    if norm in {"isco2008", "isco08", "2008", "08"}:
+    isco_ver_norm = str(isco_ver).strip().lower().replace("-", "").replace("_", "").replace(" ", "")
+    if isco_ver_norm in {"isco2008", "isco08", "2008", "08"}:
         return "ISCO-08"
-    if norm in {"isco1988", "isco88", "1988", "88"}:
+    elif isco_ver_norm in {"isco1988", "isco88", "1988", "88"}:
         return "ISCO-88"
     return None
 
 
-def _depth(d4, d3, d2):
-    return {"likely_4digit": d4, "likely_3digit": d3, "likely_2digit": d2}
+def classify_isco_code(code, ref_4digit, ref_3digit, ref_2digit):
+    """Classifies a single code against the reference sets."""
+    if code is None:
+        return None
+    code = str(code).strip()
+    if code in ref_4digit:
+        return "4digit"
+    elif code in ref_3digit:
+        return "3digit"
+    elif code in ref_2digit:
+        return "2digit"
+    else:
+        return "unknown"
 
 
-def classify_trailing_zero_depth(pct_last0, pct_last00):
+def make_isco_classifier_udf(ref_4digit, ref_3digit, ref_2digit):
     """
-    Trailing-zero depth logic: codes padded with "0"/"00" are likely 3-/2-digit.
+    Builds the classification UDF for one ISCO version. Called once per
+    version per run, not for every column of every survey.
     """
-    return _depth(
-        "Yes" if pct_last0 < THRESHOLD_4DIGIT else "No",
-        "Yes" if (pct_last0 >= THRESHOLD_3DIGIT and pct_last00 < THRESHOLD_2DIGIT) else "No",
-        "Yes" if pct_last00 >= THRESHOLD_2DIGIT else "No",
-    )
+    return udf(lambda code: classify_isco_code(code, ref_4digit, ref_3digit, ref_2digit), StringType())
 
 
-def _trailing_zero_pcts(stats):
-    n_non_af = stats["n_non_af"]
-    if n_non_af > 0:
-        return 100 * stats["n_last0"] / n_non_af, 100 * stats["n_last00"] / n_non_af
-    return 0, 0
+def build_isco_refs(excel_path):
+    """
+    Loads ISCO-08 and ISCO-88 reference sets and their classification UDFs once.
+    Returns {"ISCO-08": {"4digit", "3digit", "2digit", "udf"}, "ISCO-88": {...}}.
+    """
+    refs = {}
+    for version, sheet in [("ISCO-08", "ISCO_08"), ("ISCO-88", "ISCO_88")]:
+        ref_4digit, ref_3digit, ref_2digit = load_isco_reference(excel_path, sheet)
+        refs[version] = {
+            "4digit": ref_4digit,
+            "3digit": ref_3digit,
+            "2digit": ref_2digit,
+            "udf":    make_isco_classifier_udf(ref_4digit, ref_3digit, ref_2digit),
+        }
+    return refs
+
+
+# ==============================================================================
+# DEPTH CLASSIFICATION RULES (pure Python, applied to aggregated counts)
+# ==============================================================================
+
+def classify_isco_reference(stats):
+    """
+    ISCO-08 and ISCO-88: combined approach — reference matching + trailing-zero signal.
+
+    Reference matching classifies each code against the official list.
+    Percentages are computed over matched codes only (excluding unknowns)
+    to avoid dilution from miscoded or non-standard codes.
+
+    Spurious padding detection:
+      If >= 95% of non-Armed-Forces codes end in "0" AND reference says
+      4-digit, the match is likely spurious padding of 3-digit codes.
+      In this case, 3-digit and 2-digit reference is checked instead.
+
+    stats: n_total, n_4digit, n_3digit, n_2digit, n_unknown, n_last0, n_last00, n_non_af
+    Returns (result, pct_unknown), result holding likely_4digit/3digit/2digit.
+    """
+    result = {"likely_4digit": "", "likely_3digit": "", "likely_2digit": ""}
+    pct_unknown = 0
+
+    if stats["n_total"] > 0:
+        n_matched = stats["n_4digit"] + stats["n_3digit"] + stats["n_2digit"]
+        n_non_af  = stats["n_non_af"]
+
+        # Compute reference percentages over matched codes only
+        # to avoid unknown codes diluting the signal
+        if n_matched > 0:
+            pct_4digit = 100 * stats["n_4digit"] / n_matched
+            pct_3digit = 100 * stats["n_3digit"] / n_matched
+            pct_2digit = 100 * stats["n_2digit"] / n_matched
+        else:
+            pct_4digit = pct_3digit = pct_2digit = 0
+
+        # Trailing zero percentages over non-Armed-Forces codes only
+        if n_non_af > 0:
+            pct_last0  = 100 * stats["n_last0"]  / n_non_af
+            pct_last00 = 100 * stats["n_last00"] / n_non_af
+        else:
+            pct_last0 = pct_last00 = 0
+
+        pct_unknown = 100 * stats["n_unknown"] / stats["n_total"]
+
+        # --- Classification logic ---
+
+        if pct_last0 >= 95 and pct_4digit >= THRESHOLD_4DIGIT:
+            # Nearly all codes end in zero AND reference says 4-digit
+            # — high likelihood of spurious padding of 3-digit codes
+            # Check 3-digit and 2-digit reference to distinguish
+            if pct_last00 >= THRESHOLD_2DIGIT:
+                result["likely_4digit"] = "No"
+                result["likely_3digit"] = "No"
+                result["likely_2digit"] = "Yes"
+            elif pct_3digit >= THRESHOLD_3DIGIT:
+                result["likely_4digit"] = "No"
+                result["likely_3digit"] = "Yes"
+                result["likely_2digit"] = "No"
+            else:
+                # Reference inconclusive for 3 vs 2 — use trailing zeros
+                result["likely_4digit"] = "No"
+                result["likely_3digit"] = "Yes" if pct_last00 < THRESHOLD_2DIGIT else "No"
+                result["likely_2digit"] = "Yes" if pct_last00 >= THRESHOLD_2DIGIT else "No"
+
+        elif pct_last00 >= THRESHOLD_2DIGIT:
+            # Strong double-trailing-zero signal — 2-digit
+            result["likely_4digit"] = "No"
+            result["likely_3digit"] = "No"
+            result["likely_2digit"] = "Yes"
+
+        elif pct_4digit >= THRESHOLD_4DIGIT:
+            result["likely_4digit"] = "Yes"
+            result["likely_3digit"] = "No"
+            result["likely_2digit"] = "No"
+
+        elif pct_3digit >= THRESHOLD_3DIGIT:
+            result["likely_4digit"] = "No"
+            result["likely_3digit"] = "Yes"
+            result["likely_2digit"] = "No"
+
+        elif pct_2digit >= THRESHOLD_2DIGIT:
+            result["likely_4digit"] = "No"
+            result["likely_3digit"] = "No"
+            result["likely_2digit"] = "Yes"
+
+        else:
+            # Reference inconclusive — fall back to trailing zero
+            result["likely_4digit"] = "Yes" if pct_last0 <  THRESHOLD_4DIGIT else "No"
+            result["likely_3digit"] = "Yes" if (pct_last0 >= THRESHOLD_3DIGIT and pct_last00 < THRESHOLD_2DIGIT) else "No"
+            result["likely_2digit"] = "Yes" if pct_last00 >= THRESHOLD_2DIGIT else "No"
+
+    return result, pct_unknown
 
 
 def classify_isco_trailing_zero(stats):
     """
-    Depth for ISCO versions without a 4-digit reference (e.g. ISCO-68, ISCO-58).
-    stats: n_non_af, n_last0, n_last00 (Armed Forces codes already excluded).
+    Trailing-zero only for all other ISCO versions (including ISCO-68 and
+    ISCO-58, which have no 4-digit reference). Armed Forces codes are
+    excluded from the counts.
+
+    stats: n_non_af, n_last0, n_last00
     """
-    pct_last0, pct_last00 = _trailing_zero_pcts(stats)
-    return classify_trailing_zero_depth(pct_last0, pct_last00)
-
-
-def classify_isco_reference(stats):
-    """
-    Depth for ISCO-08 / ISCO-88, combining reference matching and trailing zeros.
-
-    stats: n_total, n_4digit, n_3digit, n_2digit, n_unknown,
-           n_non_af, n_last0, n_last00.
-
-    Reference percentages are computed over matched codes only so that unknown
-    codes do not dilute the signal. If nearly all codes end in "0" while the
-    reference says 4-digit, the match is treated as spurious padding.
-
-    Returns (depth_dict, pct_unknown).
-    """
-    if stats["n_total"] == 0:
-        return _depth("", "", ""), 0
-
-    n_matched = stats["n_4digit"] + stats["n_3digit"] + stats["n_2digit"]
-    if n_matched > 0:
-        pct_4digit = 100 * stats["n_4digit"] / n_matched
-        pct_3digit = 100 * stats["n_3digit"] / n_matched
-        pct_2digit = 100 * stats["n_2digit"] / n_matched
+    n_non_af = stats["n_non_af"]
+    if n_non_af > 0:
+        pct_last0  = 100 * stats["n_last0"]  / n_non_af
+        pct_last00 = 100 * stats["n_last00"] / n_non_af
     else:
-        pct_4digit = pct_3digit = pct_2digit = 0
+        pct_last0 = pct_last00 = 0
 
-    pct_last0, pct_last00 = _trailing_zero_pcts(stats)
-    pct_unknown = 100 * stats["n_unknown"] / stats["n_total"]
-
-    if pct_last0 >= THRESHOLD_SPURIOUS_PADDING and pct_4digit >= THRESHOLD_4DIGIT:
-        # Likely spurious padding of shorter codes — decide between 3 and 2 digits
-        # (if "00" padding is not dominant, the codes are 3-digit)
-        if pct_last00 >= THRESHOLD_2DIGIT:
-            depth = _depth("No", "No", "Yes")
-        else:
-            depth = _depth("No", "Yes", "No")
-    elif pct_last00 >= THRESHOLD_2DIGIT:
-        depth = _depth("No", "No", "Yes")
-    elif pct_4digit >= THRESHOLD_4DIGIT:
-        depth = _depth("Yes", "No", "No")
-    elif pct_3digit >= THRESHOLD_3DIGIT:
-        depth = _depth("No", "Yes", "No")
-    elif pct_2digit >= THRESHOLD_2DIGIT:
-        depth = _depth("No", "No", "Yes")
-    else:
-        depth = classify_trailing_zero_depth(pct_last0, pct_last00)
-
-    return depth, pct_unknown
+    return {
+        "likely_4digit": "Yes" if pct_last0  <  THRESHOLD_4DIGIT else "No",
+        "likely_3digit": "Yes" if (pct_last0 >= THRESHOLD_3DIGIT and pct_last00 < THRESHOLD_2DIGIT) else "No",
+        "likely_2digit": "Yes" if pct_last00 >= THRESHOLD_2DIGIT else "No",
+    }
 
 
 def classify_isic(stats):
     """
     ISIC depth handling three code formats found in GLD surveys:
-      1. Pure section letters  (e.g. "A")     : ^[A-U]$
-      2. Letter-prefix numeric (e.g. "C1410") : ^[A-U][0-9]+$
-      3. Pure numeric          (e.g. "1400")  : ^[0-9]+$  (trailing-zero logic)
+
+      1. Pure section letters  (e.g. "A", "C", "G")    : regex ^[A-U]$
+      2. Letter-prefix numeric (e.g. "A342", "C1410")   : regex ^[A-U][0-9]+$
+      3. Pure numeric          (e.g. "1400", "3410")    : regex ^[0-9]+$
+         Numeric codes follow trailing-zero convention.
+
+    For formats 1 and 2, isic_likely_section = "Yes".
+    For format 3, trailing-zero logic is applied.
 
     stats: n_total, n_section, n_alphanum, n_numeric, n_last0, n_last00
-           (trailing-zero counts over numeric codes only).
     """
     result = {
-        "present": "",
-        "isic_section_present": "",
-        "isic_likely_section": "",
-        "likely_2digit": "",
-        "likely_3digit": "",
-        "likely_4digit": "",
-        "isic_format_unrecognized": "",
+        "present":                  "",
+        "isic_section_present":     "",
+        "isic_likely_section":      "",
+        "likely_2digit":            "",
+        "likely_3digit":            "",
+        "likely_4digit":            "",
+        "isic_format_unrecognized": ""
     }
-    n_total = stats["n_total"]
-    if n_total == 0:
+
+    if stats["n_total"] == 0:
         return result
 
     result["present"] = "X"
-    n_section, n_alphanum, n_numeric = stats["n_section"], stats["n_alphanum"], stats["n_numeric"]
+
+    n_total    = stats["n_total"]
+    n_section  = stats["n_section"]
+    n_alphanum = stats["n_alphanum"]
+    n_numeric  = stats["n_numeric"]
+
+    pct_section  = 100 * n_section  / n_total
+    pct_alphanum = 100 * n_alphanum / n_total
 
     if n_section > 0 or n_alphanum > 0:
         result["isic_section_present"] = "X"
 
-    # Both pure letters and letter-prefixed codes carry the section, so their
-    # shares are combined
-    if 100 * (n_section + n_alphanum) / n_total >= THRESHOLD_SECTION:
+    if pct_section >= THRESHOLD_SECTION:
         result["isic_likely_section"] = "Yes"
-        result.update(_depth("No", "No", "No"))
+        result["likely_4digit"] = "No"
+        result["likely_3digit"] = "No"
+        result["likely_2digit"] = "No"
+
+    elif pct_alphanum >= THRESHOLD_SECTION:
+        result["isic_likely_section"] = "Yes"
+        result["likely_4digit"] = "No"
+        result["likely_3digit"] = "No"
+        result["likely_2digit"] = "No"
+
     elif n_numeric > 0:
         result["isic_likely_section"] = "No"
-        result.update(classify_trailing_zero_depth(
-            100 * stats["n_last0"] / n_numeric,
-            100 * stats["n_last00"] / n_numeric,
-        ))
-        if all(result[k] == "No" for k in ["likely_2digit", "likely_3digit", "likely_4digit"]):
+        pct_last0  = 100 * stats["n_last0"]  / n_numeric
+        pct_last00 = 100 * stats["n_last00"] / n_numeric
+        result["likely_4digit"] = "Yes" if pct_last0  <  THRESHOLD_4DIGIT else "No"
+        result["likely_3digit"] = "Yes" if (pct_last0 >= THRESHOLD_3DIGIT and pct_last00 < THRESHOLD_2DIGIT) else "No"
+        result["likely_2digit"] = "Yes" if pct_last00 >= THRESHOLD_2DIGIT else "No"
+
+        all_no = all(result[k] == "No" for k in ["likely_2digit", "likely_3digit", "likely_4digit"])
+        if all_no:
             result["isic_format_unrecognized"] = "X"
+
     else:
         result["isic_format_unrecognized"] = "X"
 
     return result
 
 
-KEY_COLUMNS = ["country", "survey_year", "survey", "quarter"]
-
-
-def survey_key(meta_row):
-    """
-    Builds the output table key (country, survey_year, survey, quarter) from an
-    _ingestion_metadata row. Used both for the MERGE and for removing stale rows,
-    so both must produce identical values.
-    """
-    quarter = meta_row["quarter"]
-    return {
-        "country":     meta_row["country"],
-        "survey_year": str(meta_row["year"]),
-        "survey":      meta_row["survey"],
-        "quarter":     str(quarter).strip() if quarter else "",
-    }
-
-
-def add_composite_flags(presence):
-    """Adds the informality and wage_available flags derived from individual variables."""
-    presence = dict(presence)
-    presence["informality"] = "X" if any(presence.get(v) == "X" for v in INFORMALITY_PROXIES) else ""
-    presence["wage_available"] = "X" if presence.get(WAGE_VARIABLE) == "X" else ""
-    return presence
-
-
 # ==============================================================================
 # SPARK HELPERS
 # ==============================================================================
 
-def _non_empty_codes(df, colname):
-    return (
-        df.filter(_is_populated(df, colname))
-          .filter(F.trim(F.col(colname).cast("string")) != "")
-    )
-
-
 def get_modal_value(df, col_names, varname):
     """
     Returns the modal non-null, non-empty value of a column as a string,
-    or "" if the column is missing or fully empty.
+    or empty string if the column is missing or fully empty.
     """
     if varname not in col_names:
         return ""
     row = (
-        _non_empty_codes(df, varname)
+        df.filter(F.col(varname).isNotNull())
+          .filter(F.trim(F.col(varname).cast("string")) != "")
           .groupBy(varname)
           .count()
           .orderBy(F.desc("count"))
@@ -311,34 +367,21 @@ def get_modal_value(df, col_names, varname):
     return str(row[0][0]).strip() if row else ""
 
 
-def _is_populated(df, colname):
-    """
-    True when a value is genuinely present: not null, not a blank string
-    (Stata missing strings are read as "") and not a floating-point NaN.
-    """
-    dtype = dict(df.dtypes)[colname]
-    col = F.col(colname)
-    cond = col.isNotNull()
-    if dtype == "string":
-        cond = cond & (F.trim(col) != "")
-    elif dtype in ("double", "float"):
-        cond = cond & ~F.isnan(col)
-    return cond
-
-
 def get_presence_flags(df, col_names, checkvars):
     """
-    Checks all variables in a single aggregation query per table.
-    Returns "X" if a variable exists and has at least one non-missing value, "" otherwise.
+    Checks all variables in a SINGLE aggregation query per table.
+    Returns "X" if a variable exists and has at least one non-missing value,
+    "" otherwise.
     """
     existing = [v for v in checkvars if v in col_names]
     if not existing:
         return {v: "" for v in checkvars}
 
-    counts = df.agg(*[
-        F.sum(F.when(_is_populated(df, v), 1).otherwise(0)).alias(v)
+    agg_exprs = [
+        F.sum(F.when(F.col(v).isNotNull(), 1).otherwise(0)).alias(v)
         for v in existing
-    ]).collect()[0]
+    ]
+    counts = df.agg(*agg_exprs).collect()[0]
 
     return {
         v: ("X" if (v in existing and counts[v] and counts[v] > 0) else "")
@@ -346,87 +389,101 @@ def get_presence_flags(df, col_names, checkvars):
     }
 
 
-def _normalized_code(colname):
-    """
-    Code as a trimmed, upper-case string. Integral floats lose their decimal
-    suffix ("1100.0" -> "1100") because ingestion infers column types, so codes
-    can arrive as doubles. Leading zeros in string codes are preserved.
-    """
-    as_str = F.upper(F.trim(F.col(colname).cast("string")))
-    return F.regexp_replace(as_str, r"^([0-9]+)\.0+$", "$1")
-
-
-def _padded_code(code):
-    """
-    Short numeric codes right-padded to 4 characters with zeros, following the
-    GLD convention that less detailed codes are padded ("14" -> "1400"), so the
-    trailing-zero heuristic also works for unpadded codes.
-    """
-    return F.when(
-        code.rlike("^[0-9]{1,3}$"), F.rpad(code, 4, "0")
-    ).otherwise(code)
-
-
-def _isco_stats(base, ref_sets):
-    """
-    Aggregates trailing-zero counts (excluding Armed Forces codes, which start
-    with "0") and, when reference sets are given, reference-match counts.
-    Reference matching uses the unpadded code and native isin() expressions
-    instead of a Python UDF; trailing zeros use the padded code.
-    """
-    code = F.col("code_str")
-    padded = _padded_code(code)
-    non_af = ~code.startswith("0")
-    aggs = [
-        F.count("*").alias("n_total"),
-        F.sum(non_af.cast("int")).alias("n_non_af"),
-        F.sum((non_af & padded.endswith("0")).cast("int")).alias("n_last0"),
-        F.sum((non_af & padded.endswith("00")).cast("int")).alias("n_last00"),
-    ]
-    if ref_sets is not None:
-        ref_4d, ref_3d, ref_2d = (sorted(s) for s in ref_sets)
-        match_class = (
-            F.when(code.isin(ref_4d), "4digit")
-             .when(code.isin(ref_3d), "3digit")
-             .when(code.isin(ref_2d), "2digit")
-             .otherwise("unknown")
-        )
-        aggs += [
-            F.sum((match_class == cls).cast("int")).alias(f"n_{cls}")
-            for cls in ["4digit", "3digit", "2digit", "unknown"]
-        ]
-    return base.agg(*aggs).collect()[0].asDict()
-
-
 def compute_isco_depth(df, col_names, isco_ver, isco_refs):
     """
-    ISCO depth for main job (occup_isco) and second job (occup_isco_2).
+    ISCO depth classification — method depends on ISCO version.
 
-    isco_refs: {"ISCO-08": (4d, 3d, 2d), "ISCO-88": (4d, 3d, 2d)}, loaded once per run.
-    ISCO-08/88 use reference matching + trailing zeros; other versions use
-    trailing zeros only.
+    ISCO-08 and ISCO-88: reference matching + trailing-zero signal
+    (see classify_isco_reference).
+    All other ISCO versions (including ISCO-68 and ISCO-58): trailing-zero
+    logic applied directly (see classify_isco_trailing_zero).
+
+    Armed Forces codes (starting with "0") are excluded from the
+    trailing-zero calculation since they are legitimate 4-digit codes.
+
+    Only one depth level is assigned per survey.
+    Applied to both main job (occup_isco) and second job (occup_isco_2).
+
+    isco_refs: output of build_isco_refs, loaded once per run.
     """
     ref_version = normalize_isco_version(isco_ver)
-    ref_sets = isco_refs.get(ref_version) if ref_version else None
+    ref = isco_refs.get(ref_version) if ref_version else None
 
     def _depth_for_col(colname):
-        result = {"present": "", **_depth("", "", "")}
+        result = {
+            "present":       "",
+            "likely_4digit": "",
+            "likely_3digit": "",
+            "likely_2digit": ""
+        }
         if colname not in col_names:
             return result
 
-        base = _non_empty_codes(df, colname).select(_normalized_code(colname).alias("code_str"))
-        stats = _isco_stats(base, ref_sets)
-        if not stats["n_total"]:
+        base = (
+            df.filter(F.col(colname).isNotNull())
+              .filter(F.trim(F.col(colname).cast("string")) != "")
+              .withColumn("code_str", F.trim(F.col(colname).cast("string")))
+        )
+
+        has_data = base.limit(1).count() > 0
+        if not has_data:
             return result
 
         result["present"] = "X"
-        if ref_sets is not None:
+
+        if ref is not None:
+            stats = (
+                base
+                .withColumn("match_class", ref["udf"](F.col("code_str")))
+                # Exclude Armed Forces codes (start with "0") from trailing-zero
+                # calculation — they are legitimate 4-digit codes ending in 0
+                .withColumn("is_armed_forces", F.col("code_str").startswith("0").cast("int"))
+                .withColumn("lastdigit",   F.expr("right(code_str, 1)"))
+                .withColumn("last2digits", F.expr("right(code_str, 2)"))
+                .agg(
+                    F.count("*").alias("n_total"),
+                    F.sum(F.when(F.col("match_class") == "4digit", 1).otherwise(0)).alias("n_4digit"),
+                    F.sum(F.when(F.col("match_class") == "3digit", 1).otherwise(0)).alias("n_3digit"),
+                    F.sum(F.when(F.col("match_class") == "2digit", 1).otherwise(0)).alias("n_2digit"),
+                    F.sum(F.when(F.col("match_class") == "unknown", 1).otherwise(0)).alias("n_unknown"),
+                    # Trailing zero counts exclude Armed Forces codes
+                    F.sum(F.when(
+                        (F.col("is_armed_forces") == 0) & (F.col("lastdigit") == "0"), 1
+                    ).otherwise(0)).alias("n_last0"),
+                    F.sum(F.when(
+                        (F.col("is_armed_forces") == 0) & (F.col("last2digits") == "00"), 1
+                    ).otherwise(0)).alias("n_last00"),
+                    F.sum(F.when(F.col("is_armed_forces") == 0, 1).otherwise(0)).alias("n_non_af"),
+                )
+                .collect()[0]
+            )
+
             depth, pct_unknown = classify_isco_reference(stats)
-            if pct_unknown > THRESHOLD_UNKNOWN_WARNING:
-                print(f"    NOTE: {colname} — {pct_unknown:.0f}% of codes unrecognised in "
-                      f"{ref_version} reference. Classification may be unreliable.")
+
+            # Warn if high unknown rate — classification may be unreliable
+            if pct_unknown > 30:
+                print(f"    NOTE: {colname} — {pct_unknown:.0f}% of codes unrecognised in {ref_version} reference. Classification may be unreliable.")
+
         else:
+            stats = (
+                base
+                .withColumn("is_armed_forces", F.col("code_str").startswith("0").cast("int"))
+                .withColumn("lastdigit",   F.expr("right(code_str, 1)"))
+                .withColumn("last2digits", F.expr("right(code_str, 2)"))
+                .agg(
+                    F.sum(F.when(F.col("is_armed_forces") == 0, 1).otherwise(0)).alias("n_non_af"),
+                    F.sum(F.when(
+                        (F.col("is_armed_forces") == 0) & (F.col("lastdigit") == "0"), 1
+                    ).otherwise(0)).alias("n_last0"),
+                    F.sum(F.when(
+                        (F.col("is_armed_forces") == 0) & (F.col("last2digits") == "00"), 1
+                    ).otherwise(0)).alias("n_last00"),
+                )
+                .collect()[0]
+            )
+
             depth = classify_isco_trailing_zero(stats)
+
         result.update(depth)
         return result
 
@@ -446,36 +503,48 @@ def compute_isco_depth(df, col_names, isco_ver, isco_refs):
 
 
 def compute_isic_depth(df, col_names):
-    """ISIC depth for main job (industrycat_isic). See classify_isic."""
-    colname = "industrycat_isic"
-    if colname not in col_names:
-        main = classify_isic({"n_total": 0})
-    else:
-        code = F.col("code_trim")
-        padded = _padded_code(code)
-        is_numeric = code.rlike("^[0-9]+$")
+    """
+    ISIC depth for main job (industrycat_isic) only. See classify_isic.
+    """
+
+    def _depth_for_col(colname):
+        if colname not in col_names:
+            return classify_isic({"n_total": 0})
+
         stats = (
-            _non_empty_codes(df, colname)
-              .select(_normalized_code(colname).alias("code_trim"))
+            df.filter(F.col(colname).isNotNull())
+              .filter(F.trim(F.col(colname).cast("string")) != "")
+              .withColumn("code_trim",   F.trim(F.upper(F.col(colname).cast("string"))))
+              .withColumn("is_section",  F.col("code_trim").rlike("^[A-U]$").cast("int"))
+              .withColumn("is_alphanum", F.col("code_trim").rlike("^[A-U][0-9]+$").cast("int"))
+              .withColumn("is_numeric",  F.col("code_trim").rlike("^[0-9]+$").cast("int"))
+              .withColumn("lastdigit",   F.expr("right(code_trim, 1)"))
+              .withColumn("last2digits", F.expr("right(code_trim, 2)"))
+              .withColumn("last0",  F.when(
+                  (F.col("is_numeric") == 1) & (F.col("lastdigit")   == "0"), 1).otherwise(0))
+              .withColumn("last00", F.when(
+                  (F.col("is_numeric") == 1) & (F.col("last2digits") == "00"), 1).otherwise(0))
               .agg(
                   F.count("*").alias("n_total"),
-                  F.sum(code.rlike("^[A-U]$").cast("int")).alias("n_section"),
-                  F.sum(code.rlike("^[A-U][0-9]+$").cast("int")).alias("n_alphanum"),
-                  F.sum(is_numeric.cast("int")).alias("n_numeric"),
-                  F.sum((is_numeric & padded.endswith("0")).cast("int")).alias("n_last0"),
-                  F.sum((is_numeric & padded.endswith("00")).cast("int")).alias("n_last00"),
+                  F.sum("is_section").alias("n_section"),
+                  F.sum("is_alphanum").alias("n_alphanum"),
+                  F.sum("is_numeric").alias("n_numeric"),
+                  F.sum("last0").alias("n_last0"),
+                  F.sum("last00").alias("n_last00"),
               )
               .collect()[0]
-              .asDict()
         )
-        main = classify_isic(stats)
+
+        return classify_isic(stats)
+
+    main = _depth_for_col("industrycat_isic")
 
     return {
-        "isic_present":             main["present"],
-        "isic_section_present":     main["isic_section_present"],
-        "isic_likely_section":      main["isic_likely_section"],
-        "isic_likely_2digit":       main["likely_2digit"],
-        "isic_likely_3digit":       main["likely_3digit"],
-        "isic_likely_4digit":       main["likely_4digit"],
-        "isic_format_unrecognized": main["isic_format_unrecognized"],
+        "isic_present":               main["present"],
+        "isic_section_present":       main["isic_section_present"],
+        "isic_likely_section":        main["isic_likely_section"],
+        "isic_likely_2digit":         main["likely_2digit"],
+        "isic_likely_3digit":         main["likely_3digit"],
+        "isic_likely_4digit":         main["likely_4digit"],
+        "isic_format_unrecognized":   main["isic_format_unrecognized"],
     }

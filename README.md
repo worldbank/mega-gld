@@ -67,12 +67,12 @@ When a new column is added to or removed from the GLD data dictionary, the stack
 ___
 **availability_creation:** creates and keeps up to date the `prd_mega.sgld48.gld_availability` table, which tracks which country/year/survey combinations are available in the catalog along with their data classification. For each combination, it retains only the most recent ingested version (by `table_version`).
 ___
-**platform_creation:** creates and keeps up to date the `prd_mega.sgld48.gld_variable_coverage` table, which feeds the GLD platform's variable coverage view. For every stacked survey in the __ingestion_metadata_ table (`stacking` = TRUE), it reads the harmonized table and records, one row per country/year/survey/quarter:
+**platform_creation:** creates and keeps up to date the `prd_mega.sgld48.gld_variable_coverage` table, used by the GLD platform. For every survey with `stacking` = TRUE in the __ingestion_metadata_ table, it reads the survey table and records, one row per country/year/survey/quarter:
 - presence (`X`) of each variable listed in `VARIABLE_GROUPS`, plus the derived `informality` and `wage_available` flags;
 - the modal `isco_version`, `isic_version`, `icls_v` and `survname`;
-- the likely coding depth of `occup_isco`/`occup_isco_2` (4, 3 or 2 digits) and `industrycat_isic` (section letter, 4, 3 or 2 digits).
-> ISCO-08 and ISCO-88 codes are matched against the official ILO unit group codes in `/Volumes/prd_csc_mega/sgld48/vgld48/Workspace/Classification_ISCO/ISCO.xlsx` (one sheet per version, `unit` column), combined with a trailing-zero check to catch 3- or 2-digit codes padded to 4 digits. All other ISCO versions and ISIC codes rely on the trailing-zero check only. Thresholds are defined at the top of `helpers/platform_pipeline.py`.
-> The table is created on the first run; afterwards rows are upserted with a MERGE on country/survey_year/survey/quarter, and rows for surveys no longer selected by the stacking flag are deleted (surveys that fail to process in a run are kept as they were). Set `TRUNCATE_BEFORE_RUN` to TRUE in the script to rebuild the table from scratch.
+- the likely coding depth of `occup_isco`/`occup_isco_2` (4, 3 or 2 digits) and `industrycat_isic` (section, 4, 3 or 2 digits).
+> ISCO-08 and ISCO-88 codes are matched against the official ILO unit group codes in `/Volumes/prd_csc_mega/sgld48/vgld48/Workspace/Classification_ISCO/ISCO.xlsx`, combined with a trailing-zero check; other ISCO versions and ISIC codes use the trailing-zero check only. Thresholds, variable groups and helper functions are in `helpers/platform_pipeline.py`.
+> Rows are upserted with a MERGE on country/survey_year/survey/quarter. Set `TRUNCATE_BEFORE_RUN` to TRUE in the script to rebuild the table from scratch.
 <br>
 <br>
 
@@ -125,7 +125,7 @@ Run a single test file:
 ```bash
 python -m pytest tests/pytest/test_ingestion_pipeline.py
 ```
-> The Spark-dependent tests in `tests/pytest/test_platform_pipeline.py` are skipped when `pyspark` is not installed; the classification logic tests run without Spark.
+> The Spark-dependent tests in `tests/pytest/test_platform_pipeline.py` are skipped when `pyspark` is not installed.
 
 ### Databricks
 #### R tests
