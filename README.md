@@ -52,7 +52,7 @@ ___
 
 [helpers/config.r](helpers/config.r) defines the two catalog/schema targets:
 - `CSC_SCHEMA` (`prd_csc_mega.sgld48`) holds the individual survey tables, `_ingestion_metadata`, and `HARMONIZED_ALL` (`gld_harmonized_all`).
-- `OUO_SCHEMA` (`prd_mega.sgld48`) holds `HARMONIZED_OFFICIAL` (`gld_harmonized_ouo`).
+- `OUO_SCHEMA` (`prd_mega.gld`) holds `HARMONIZED_OFFICIAL` (`gld_harmonized_ouo`).
 
 Stacking and the harmonized JSON scripts use the fully qualified `HARMONIZED_ALL` and `HARMONIZED_OFFICIAL` constants. The source and export volume paths remain unchanged.
 

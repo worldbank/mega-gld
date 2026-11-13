@@ -19,7 +19,7 @@ BATCH_SIZE <- 15
 
 # Database
 CSC_SCHEMA     <- "prd_csc_mega.sgld48"
-OUO_SCHEMA     <- "prd_mega.sgld48"
+OUO_SCHEMA     <- "prd_mega.gld"
 METADATA_TABLE <- paste0(CSC_SCHEMA, "._ingestion_metadata")
 HARMONIZED_ALL <- paste0(CSC_SCHEMA, ".gld_harmonized_all")
 HARMONIZED_OFFICIAL <- paste0(OUO_SCHEMA, ".gld_harmonized_ouo")
