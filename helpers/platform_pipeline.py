@@ -61,7 +61,7 @@ VARIABLE_GROUPS = {
     ],
     "second_job_12m": [
         "empstat_2_year", "industrycat10_2_year", "occup_2_year",
-        "wage_total_2_year", "whours_2_year", "unitwage_total_2_year",
+        "wage_total_2_year", "whours_2_year", "unitwage_2_year",
         "t_wage_total_year"
     ],
     "migration": [
