@@ -72,7 +72,7 @@ ___
 - the modal `isco_version`, `isic_version`, `icls_v` and `survname`;
 - the likely coding depth of `occup_isco`/`occup_isco_2` (4, 3 or 2 digits) and `industrycat_isic` (section, 4, 3 or 2 digits).
 > ISCO-08 and ISCO-88 codes are matched against the official ILO unit group codes in `/Volumes/prd_csc_mega/sgld48/vgld48/Workspace/Classification_ISCO/ISCO.xlsx`, combined with a trailing-zero check; other ISCO versions and ISIC codes use the trailing-zero check only. Thresholds, variable groups and helper functions are in `helpers/platform_pipeline.py`.
-> Rows are upserted with a MERGE on country/survey_year/survey/quarter. Set `TRUNCATE_BEFORE_RUN` to TRUE in the script to rebuild the table from scratch.
+> Rows are upserted with a MERGE on country/survey_year/survey/quarter. Surveys already in the table with the same `table_version` are skipped, so only new or re-ingested surveys are recomputed. Set `TRUNCATE_BEFORE_RUN` to TRUE in the script to rebuild the table from scratch (e.g. after changing the classification logic).
 <br>
 <br>
 

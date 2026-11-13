@@ -46,8 +46,8 @@ resources:
           depends_on:
             - task_key: incremental_sync
           notebook_task:
-            notebook_path: platform_creation
-            source: GIT
+            notebook_path: /Repos/gld/gld/platform_creation
+            source: WORKSPACE
           existing_cluster_id: 0325-175804-46t5j6kj
 
         - task_key: incremental_sync

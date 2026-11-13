@@ -67,11 +67,44 @@ else:
         spark.table(META_TABLE)
         .filter(F.col("stacking") == True)
         .filter(F.col("table_name").isNotNull())
-        .select("country", "year", "survey", "quarter", "table_name", "harmonization")
+        .select("country", "year", "survey", "quarter", "table_name", "harmonization", "table_version")
         .collect()
     )
 
-    print(f"Found {len(meta_df)} country-survey-year rows to process.")
+    print(f"Found {len(meta_df)} stacked country-survey-year rows.")
+
+    # ==========================================================================
+    # STEP 1A: Skip surveys already processed at the same table_version
+    #
+    # A re-ingested survey overwrites the same table and gets a new
+    # table_version, so it is recomputed. Rows without a stored table_version
+    # (written before this column existed) are recomputed once.
+    # ==========================================================================
+
+    if TRUNCATE_BEFORE_RUN:
+        print("TRUNCATE_BEFORE_RUN is True — clearing existing table...")
+        spark.sql(f"TRUNCATE TABLE {OUTPUT_TABLE}")
+
+    if "table_version" not in spark.table(OUTPUT_TABLE).columns:
+        spark.sql(f"ALTER TABLE {OUTPUT_TABLE} ADD COLUMNS (table_version BIGINT)")
+
+    def _key(country, year, survey, quarter):
+        return (country, str(year), survey, str(quarter).strip() if quarter else "")
+
+    done = {
+        _key(r["country"], r["survey_year"], r["survey"], r["quarter"]): r["table_version"]
+        for r in spark.table(OUTPUT_TABLE)
+                      .select("country", "survey_year", "survey", "quarter", "table_version")
+                      .collect()
+    }
+
+    meta_df = [
+        r for r in meta_df
+        if r["table_version"] is None
+        or done.get(_key(r["country"], r["year"], r["survey"], r["quarter"])) != r["table_version"]
+    ]
+
+    print(f"{len(meta_df)} new or updated surveys to process.")
 
     # ==========================================================================
     # STEP 1B: Load ISCO reference code sets
@@ -146,6 +179,7 @@ else:
                 "survey":                survey,
                 "quarter":               quarter,
                 "harmonization":         row["harmonization"] or "",
+                "table_version":         int(row["table_version"]) if row["table_version"] is not None else None,
                 "isco_version":          isco_ver,
                 "isic_version":          isic_ver,
                 "icls_v":                icls_v,
@@ -181,11 +215,14 @@ else:
     # STEP 3: Write to Delta table
     # ==========================================================================
 
-    if TRUNCATE_BEFORE_RUN:
-        print("TRUNCATE_BEFORE_RUN is True — clearing existing table...")
-        spark.sql(f"TRUNCATE TABLE {OUTPUT_TABLE}")
+    if not rows:
+        dbutils.notebook.exit("Variable coverage is up to date. Nothing to process.")
 
-    coverage_df = spark.createDataFrame(rows)
+    from pyspark.sql.types import LongType
+    coverage_df = (
+        spark.createDataFrame(rows)
+        .withColumn("table_version", F.col("table_version").cast(LongType()))
+    )
     coverage_df.createOrReplaceTempView("coverage_updates")
 
     spark.sql(f"""
