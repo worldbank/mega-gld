@@ -11,6 +11,9 @@ resources:
       email_notifications:
         on_failure:
           - mvisintini@worldbank.org
+          - mgronert@worldbank.org
+      max_concurrent_runs: 1
+      performance_target: PERFORMANCE_OPTIMIZED
       trigger:
         pause_status: UNPAUSED
         periodic:
@@ -41,7 +44,7 @@ resources:
 
         - task_key: platform_creation
           depends_on:
-            - task_key: metadata_parsing
+            - task_key: incremental_sync
           notebook_task:
             notebook_path: platform_creation
             source: GIT
@@ -57,7 +60,7 @@ resources:
 
         - task_key: json_creation
           depends_on:
-            - task_key: metadata_parsing
+            - task_key: incremental_sync
           notebook_task:
             notebook_path: json_creation
             source: GIT
