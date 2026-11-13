@@ -18,11 +18,11 @@ CSV_HARMONIZED <- "/Volumes/prd_csc_mega/sgld48/vgld48/Workspace/harmonized_csv"
 BATCH_SIZE <- 15
 
 # Database
-TARGET_SCHEMA  <- "prd_csc_mega.sgld48"
-OUO_SCHEMA     <- "prd_mega.sgld48"
-METADATA_TABLE <- paste0(TARGET_SCHEMA, "._ingestion_metadata")
-HARMONIZED_ALL <- paste0(TARGET_SCHEMA, ".gld_harmonized_all")
-HARMONIZED_OFFICIAL <- paste0(TARGET_SCHEMA, ".gld_harmonized_ouo")
+CSC_SCHEMA     <- "prd_csc_mega.sgld48"
+OUO_SCHEMA     <- "prd_mega.gld"
+METADATA_TABLE <- paste0(CSC_SCHEMA, "._ingestion_metadata")
+HARMONIZED_ALL <- paste0(CSC_SCHEMA, ".gld_harmonized_all")
+HARMONIZED_OFFICIAL <- paste0(OUO_SCHEMA, ".gld_harmonized_ouo")
 
 # GitHub (for documentation links)
 GH_OWNER  <- "worldbank"

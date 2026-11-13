@@ -101,7 +101,12 @@ get_version_label <- function(sc, tbl_metadata, table_name_value) {
     return("")
   }
 
-  full_table_name <- paste0(TARGET_SCHEMA, ".", table_name_value)
+  full_table_name <- switch(
+    table_name_value,
+    gld_harmonized_all = HARMONIZED_ALL,
+    gld_harmonized_ouo = HARMONIZED_OFFICIAL,
+    stop("Unexpected harmonized table: ", table_name_value)
+  )
 
   history_df <- sparklyr::sdf_sql(
     sc, paste0("DESCRIBE HISTORY ", full_table_name)) %>%

@@ -48,6 +48,16 @@ ___
 > Example:
 > THA_2021_LFS-Q2_V01_M_V02_A_GLD is ingested in tha_2021_lfs_q2 table, overwriting its content (i.e.THA_2021_LFS-Q2_V01_M_V01_A_GLD). Subsequently, the rows of the _gld_harmonized_*_ table for Thailand 2021 are dropped, and replaced with the new rows from tha_2021_lfs_q2. After the replacement has occurred, the script retrieves the  _gld_harmonized_*_ latest Delta version (the maximum version number). This version is stored in the __ingestion_metadata_ table in the `stacked_ouo_table_version` column and used to compute the version statement in the **harmonized_json_creation** script.
 
+#### Harmonized table destinations
+
+[helpers/config.r](helpers/config.r) defines the two catalog/schema targets:
+- `CSC_SCHEMA` (`prd_csc_mega.sgld48`) holds the individual survey tables, `_ingestion_metadata`, and `HARMONIZED_ALL` (`gld_harmonized_all`).
+- `OUO_SCHEMA` (`prd_mega.gld`) holds `HARMONIZED_OFFICIAL` (`gld_harmonized_ouo`).
+
+Stacking and the harmonized JSON scripts use the fully qualified `HARMONIZED_ALL` and `HARMONIZED_OFFICIAL` constants. The source and export volume paths remain unchanged.
+
+Changing these destinations does not migrate an existing table. Before running against a new OUO destination, plan the data migration or full rebuild and reconcile the `stacked_ouo_*` metadata with the destination's Delta version history. Incremental sync can exit when metadata reports no changes, or populate only changed surveys in a newly created table.
+
 #### Updating the stacking schema when the data dictionary changes
 
 When a new column is added to or removed from the GLD data dictionary, the stacking schema must be updated so the harmonized tables reflect the change. The steps depend on whether the column is **static** (fixed name) or **dynamic** (name contains a numeric index).

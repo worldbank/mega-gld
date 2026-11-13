@@ -49,8 +49,12 @@ if (is_databricks()) {
     fname_base <- idno %>% sub("^DDI_", "", .) %>% sub("_WB$", "", .)
     
     table_suffix <- tolower(sub("_V[0-9]+$", "", fname_base))  
-    table_suffix <- sub("^GLD_", "", table_suffix)
-    table_name <- paste0(TARGET_SCHEMA,".", table_suffix)    
+    table_name <- switch(
+      table_suffix,
+      gld_harmonized_all = HARMONIZED_ALL,
+      gld_harmonized_ouo = HARMONIZED_OFFICIAL,
+      stop("Unexpected harmonized table: ", table_suffix)
+    )
     
     csv_dir  <- file.path(CSV_HARMONIZED, paste0(fname_base, "_temp"))
     csv_name <- paste0(fname_base, ".csv")
@@ -120,8 +124,12 @@ if (is_databricks()) {
     fname_base <- idno %>% sub("^DDI_", "", .) %>% sub("_WB$", "", .)
     
     table_suffix <- tolower(sub("_V[0-9]+$", "", fname_base))  
-    table_suffix <- sub("^GLD_", "", table_suffix)
-    table_name <- paste0(TARGET_SCHEMA,".", table_suffix)    
+    table_name <- switch(
+      table_suffix,
+      gld_harmonized_all = HARMONIZED_ALL,
+      gld_harmonized_ouo = HARMONIZED_OFFICIAL,
+      stop("Unexpected harmonized table: ", table_suffix)
+    )
     
     csv_path <- file.path(CSV_HARMONIZED, paste0(fname_base, ".csv.zip"))
     

@@ -33,8 +33,8 @@ if (is_databricks()) {
 
   metadata <- tbl(sc, METADATA_TABLE)
   
-  tbl_all <- tbl(sc,  paste0(TARGET_SCHEMA,".gld_harmonized_all"))
-  tbl_ouo <- tbl(sc, paste0(TARGET_SCHEMA,".gld_harmonized_ouo"))
+  tbl_all <- tbl(sc, HARMONIZED_ALL)
+  tbl_ouo <- tbl(sc, HARMONIZED_OFFICIAL)
 
   metadata_harmonized <- build_harmonized_metadata(
     sc = sc,
