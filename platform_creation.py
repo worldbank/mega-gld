@@ -225,6 +225,22 @@ else:
     )
     coverage_df.createOrReplaceTempView("coverage_updates")
 
+    # Drop target columns the script no longer produces (e.g. renamed
+    # variables), otherwise UPDATE SET * fails with DELTA_MERGE_UNRESOLVED_EXPRESSION.
+    # DROP COLUMN requires column mapping on the Delta table.
+    stale_cols = [c for c in spark.table(OUTPUT_TABLE).columns if c not in coverage_df.columns]
+    if stale_cols:
+        print(f"Dropping obsolete columns from {OUTPUT_TABLE}: {stale_cols}")
+        spark.sql(f"""
+            ALTER TABLE {OUTPUT_TABLE} SET TBLPROPERTIES (
+                'delta.columnMapping.mode' = 'name',
+                'delta.minReaderVersion'   = '2',
+                'delta.minWriterVersion'   = '5'
+            )
+        """)
+        cols_sql = ", ".join(f"`{c}`" for c in stale_cols)
+        spark.sql(f"ALTER TABLE {OUTPUT_TABLE} DROP COLUMNS ({cols_sql})")
+
     spark.sql(f"""
         MERGE INTO {OUTPUT_TABLE} AS target
         USING coverage_updates AS source
